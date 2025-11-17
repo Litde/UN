@@ -1,6 +1,11 @@
+from typing import Any, Generator
+
 import numpy as np
 import cv2
 import random
+
+from numpy import ndarray
+
 
 class ImageHoleGenerator:
     def __init__(self, holes:int=1, points:int=5, debug:bool=False) -> None:
@@ -9,6 +14,7 @@ class ImageHoleGenerator:
         self.points = points
         self.image = None
         self.output_image = None
+        self.num_of_iteration = 0
 
     def load_image(self, image_pth:str) -> None:
         self.image = cv2.imread(image_pth)[:, :, ::-1]
@@ -38,9 +44,9 @@ class ImageHoleGenerator:
 
     def _save_all(self, corrupted, mask, output):
         """Save all images for debugging."""
-        cv2.imwrite("output/corrupted.png", corrupted[:, :, ::-1])  # RGB to BGR
-        cv2.imwrite("output/mask.png", mask * 255)  # mask is 0/1
-        cv2.imwrite("output/output.png", output[:, :, ::-1])  # RGB to BGR
+        cv2.imwrite(f"../output/images/corrupted_{self.num_of_iteration}.png", corrupted[:, :, ::-1])  # RGB to BGR
+        cv2.imwrite(f"../output/masks/mask{self.num_of_iteration}.png", mask * 255)  # mask is 0/1
+        cv2.imwrite(f"../output/outputs/output{self.num_of_iteration}.png", output[:, :, ::-1])  # RGB to BGR
 
     def _save(self):
         """Save the output image with mask channel for debugging."""
@@ -85,11 +91,16 @@ class ImageHoleGenerator:
             print("Corrupted image shape:", corrupted.shape)
             print("Mask shape:", mask_channel.shape)
             print("Output shape:", output.shape)
-            self._save_all(corrupted, mask_channel, output)
-        else:
-            self._save()
+
+        self._save_all(corrupted, mask_channel, output)
 
         return corrupted, mask_channel, output
+
+    def iterate_images(self, image_paths:list[str]) -> None:
+        for image_pth in image_paths:
+            self.load_image(image_pth)
+            self.apply()
+            self.num_of_iteration+=1
 
 
 
