@@ -5,6 +5,7 @@ import cv2
 import random
 
 from numpy import ndarray
+from tqdm import tqdm
 
 
 class ImageHoleGenerator:
@@ -97,10 +98,13 @@ class ImageHoleGenerator:
         return corrupted, mask_channel, output
 
     def iterate_images(self, image_paths:list[str]) -> None:
+        progress = tqdm(total=len(image_paths), desc="Processing images")
         for image_pth in image_paths:
             self.load_image(image_pth)
             self.apply()
             self.num_of_iteration+=1
+            progress.update(1)
+        progress.close()
 
 
 
