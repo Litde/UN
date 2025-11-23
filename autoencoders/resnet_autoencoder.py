@@ -83,7 +83,36 @@ class ResNetEncoder(nn.Module):
         self.return_stages = tuple(return_stages)
 
         ctor = getattr(torchvision.models, name)
-        base = ctor(**_get_weights_arg(name, pretrained))
+
+        is_basic = name in ("resnet18", "resnet34")
+
+        if is_basic:
+            base = ctor(**_get_weights_arg(name, pretrained))
+            # OS=16: turn off downsampling w layer4[0]
+            if output_stride == 16:
+                # stem: /4, layer2: /8, layer3: /16, layer4: /16 (stride=1)
+                base.layer4[0].conv1.stride = (1, 1)
+                if base.layer4[0].downsample is not None:
+                    base.layer4[0].downsample[0].stride = (1, 1)
+            # OS=8: turn off downsampling in layer3[0] and layer4[0]
+            elif output_stride == 8:
+                # stem: /4, layer2: /8, layer3: /8, layer4: /8
+                base.layer3[0].conv1.stride = (1, 1)
+                if base.layer3[0].downsample is not None:
+                    base.layer3[0].downsample[0].stride = (1, 1)
+                base.layer4[0].conv1.stride = (1, 1)
+                if base.layer4[0].downsample is not None:
+                    base.layer4[0].downsample[0].stride = (1, 1)
+        else:
+            rstd = (False, False, False)  # OS=32 (default)
+            if output_stride == 16:
+                rstd = (False, False, True)  # layer4 with dilation
+            elif output_stride == 8:
+                rstd = (False, True, True)  # layer3 and layer4 with dilation
+            base = ctor(
+                **_get_weights_arg(name, pretrained),
+                replace_stride_with_dilation=rstd,
+            )
 
         # keep conv backbone; drop avgpool/fc
         self.stem = nn.Sequential(base.conv1, base.bn1, base.relu, base.maxpool)  # C1
@@ -92,7 +121,6 @@ class ResNetEncoder(nn.Module):
         self.layer3 = base.layer3  # C4
         self.layer4 = base.layer4  # C5
 
-        self._set_output_stride(output_stride)
         self._maybe_freeze(freeze_at)
         self.norm_eval = norm_eval
         if self.norm_eval:
@@ -104,24 +132,6 @@ class ResNetEncoder(nn.Module):
         if self.name in ("resnet18", "resnet34"):
             return {"C1": 64, "C2": 64, "C3": 128, "C4": 256, "C5": 512}
         return {"C1": 64, "C2": 256, "C3": 512, "C4": 1024, "C5": 2048}
-
-    def _set_output_stride(self, os: int) -> None:
-        if os == 32:
-            return
-
-        def _nostride_dilate(mod: nn.Module, dilate: int):
-            for m in mod.modules():
-                if isinstance(m, nn.Conv2d) and m.kernel_size == (3, 3):
-                    if m.stride == (2, 2):
-                        m.stride = (1, 1)
-                    m.dilation = (dilate, dilate)
-                    m.padding = (dilate, dilate)
-
-        if os == 16:
-            _nostride_dilate(self.layer4, dilate=2)
-        elif os == 8:
-            _nostride_dilate(self.layer3, dilate=2)
-            _nostride_dilate(self.layer4, dilate=4)
 
     def _maybe_freeze(self, freeze_at: int) -> None:
         stages = [self.stem, self.layer1, self.layer2, self.layer3, self.layer4]
@@ -258,7 +268,7 @@ class ResNetAutoEncoder(nn.Module):
         use_skips: bool = True,
         out_channels: int = 3,
         base_width: int = 256,
-        num_ups: int = 5,
+        num_ups: int | None = None,
         final_act: str | None = None,
         freeze_at: int = 0,
         norm_eval: bool = False,
@@ -275,6 +285,10 @@ class ResNetAutoEncoder(nn.Module):
         ch_map = self.encoder.out_channels
         top_ch = ch_map[return_stages[0]]
         skip_chs = [ch_map[s] for s in return_stages[1:]]
+
+        if num_ups is None:
+            # OS=32 -> top 8x8 -> 5 upsamples; OS=16 -> 16x16 -> 4; OS=8 -> 32x32 -> 3
+            num_ups = {32: 5, 16: 4, 8: 3}[output_stride]
 
         self.decoder = UNetStyleDecoder(
             in_ch_top=top_ch,
