@@ -1,7 +1,7 @@
 from sympy.physics.quantum.circuitplot import render_label
 
 from basic_inpainting import BasicInpainting, import_params
-from resnet_autoencoder import UNet, prepare_input
+from unet_autoencoder import UNet, prepare_input
 import torch
 from torchview import draw_graph
 import os
