@@ -1,94 +1,88 @@
+import cv2
 import os
-
 import torch
-from torch.utils.data import Dataset
-from torchvision import transforms
-from PIL import Image
-import numpy as np
+from torch import Tensor
+from torch.utils.data import Dataset, DataLoader, random_split
+from pytorch_lightning import LightningDataModule
+from typing import List, Tuple
 
 
-class ImageMaskDataset(Dataset):
-    """Minimalny dataset obraz-mask.
+def prepare_input(image_pth: str, debug:bool = False) -> Tensor:
+    img = cv2.imread(image_pth)
+    img = cv2.resize(img, (256, 256))
+    img = img.transpose(2, 0, 1)
+    img = img.reshape(3, 256, 256)
+    if debug:
+        print(f"Prepared input shape: {img.shape}")
+    return torch.tensor(img).float()
 
-    - Szuka plików w `images_dir` i `masks_dir`.
-    - Dopasowuje pliki po nazwie bazowej (bez rozszerzenia).
-    - Jeśli `require_mask=False`, obrazy bez maski dostają czarną maskę.
-    """
+class ImageDataset(Dataset):
+    def __init__(self, corrupted_dir: str, original_dir: str, split: str = 'train'):
+        self.corrupted_dir = corrupted_dir
+        self.original_dir = original_dir
+        self.split = split
+        self.dataset: List[Tuple[Tensor, Tensor]] = []
+        self._load_data()
 
-    def __init__(self, images_dir: str, masks_dir: str, image_size: int = 256, require_mask: bool = False):
-        self.images_dir = images_dir
-        self.masks_dir = masks_dir
-        self.image_size = image_size
-        self.require_mask = require_mask
+    def _load_data(self) -> None:
+        files_original = os.listdir(self.original_dir)
+        original_map = {}
+        for f in files_original:
+            num = os.path.splitext(f)[0]  # '0000.jpg' -> '0000'
+            original_map[int(num)] = f  # convert to int for matching
 
-        img_exts = ('.png', '.jpg', '.jpeg')
-        mask_exts = ('.png', '.jpg', '.jpeg', '.npy')
+        files_corrupted = os.listdir(self.corrupted_dir)
+        for corrupted_file in files_corrupted:
+            corrupted_num_str = os.path.splitext(corrupted_file)[0].replace("corrupted_", "")
+            corrupted_num = int(corrupted_num_str)
 
-        imgs = sorted([f for f in os.listdir(images_dir) if os.path.isfile(os.path.join(images_dir, f)) and f.lower().endswith(img_exts)])
-        masks = sorted([f for f in os.listdir(masks_dir) if os.path.isfile(os.path.join(masks_dir, f)) and f.lower().endswith(mask_exts)])
+            if corrupted_num in original_map:
+                original_file = original_map[corrupted_num]
 
-        img_map = {os.path.splitext(f)[0]: f for f in imgs}
-        mask_map = {os.path.splitext(f)[0]: f for f in masks}
+                corrupted_path = os.path.join(self.corrupted_dir, corrupted_file)
+                original_path = os.path.join(self.original_dir, original_file)
 
-        common = sorted(set(img_map.keys()) & set(mask_map.keys()))
+                corrupted_img = prepare_input(corrupted_path)
+                original_img = prepare_input(original_path)
 
-        if require_mask and len(common) == 0:
-            raise ValueError(f"No matching image-mask pairs found in '{images_dir}' and '{masks_dir}'")
+                self.dataset.append((corrupted_img, original_img))
+        assert len(self.dataset) != 0, f"Dataset is empty"
 
-        if require_mask:
-            keys = common
-        else:
-            keys = sorted(img_map.keys())
 
-        self.image_files = [img_map[k] for k in keys]
-        self.mask_files = [mask_map.get(k, None) for k in keys]
+    def __len__(self) -> int:
+        return len(self.dataset)
 
-        self.transform_img = transforms.Compose([
-            transforms.Resize((image_size, image_size)),
-            transforms.ToTensor(),
-            transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
-        ])
-        self.transform_mask = transforms.Compose([
-            transforms.Resize((image_size, image_size), interpolation=transforms.InterpolationMode.NEAREST)
-        ])
+    def __getitem__(self, idx) -> Tuple[Tensor, Tensor]:
+        return self.dataset[idx]
 
-    def __len__(self):
-        return len(self.image_files)
 
-    def __getitem__(self, idx):
-        img_path = os.path.join(self.images_dir, self.image_files[idx])
-        mask_file = self.mask_files[idx]
-        mask_path = os.path.join(self.masks_dir, mask_file) if mask_file is not None else None
+class ImageDatasetLightning(LightningDataModule):
+    def __init__(self, corrupted_dir: str, original_dir: str, batch_size: int = 32):
+        super().__init__()
+        self.corrupted_dir = corrupted_dir
+        self.original_dir = original_dir
+        self.batch_size = batch_size
+        self.train_dataset = None
+        self.val_dataset = None
+        self.test_dataset = None
+        self.num_workers = 0
 
-        img = Image.open(img_path).convert('RGB')
+    def setup(self, stage=None):
+        full = ImageDataset(self.corrupted_dir, self.original_dir)
+        n = len(full)
+        train_n = int(n * 0.8)
+        val_n = int(n * 0.1)
+        test_n = n - train_n - val_n
 
-        if mask_path is None:
-            mask_img = Image.new('L', img.size, 0)
-        else:
-            if mask_path.lower().endswith(('.png', '.jpg', '.jpeg')):
-                mask_img = Image.open(mask_path).convert('L')
-            else:
-                mask_np = np.load(mask_path)
-                if mask_np.dtype != np.uint8:
-                    mask_np = (mask_np * 255).astype(np.uint8)
-                mask_img = Image.fromarray(mask_np)
+        self.train_dataset, self.val_dataset, self.test_dataset = random_split(full, [train_n, val_n, test_n])
 
-        img_t = self.transform_img(img)
-        mask_img = self.transform_mask(mask_img)
-        mask_t = transforms.ToTensor()(mask_img)
-        mask_t = (mask_t > 0.5).float()
+        self.num_workers = os.cpu_count() - 1 if os.cpu_count() - 1 is not None else 4
 
-        return img_t, mask_t
+    def train_dataloader(self):
+        return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, num_workers=self.num_workers, persistent_workers=True)
 
-    def split_ds(self, train_ratio=0.7, test_ratio=0.2, valid_ratio=0.1, seed=42, shuffle=True):
-        n = len(self)
-        indices = list(range(n))
-        if shuffle:
-            np.random.seed(seed)
-            np.random.shuffle(indices)
-        tr = int(train_ratio * n)
-        te = tr + int(test_ratio * n)
-        train = torch.utils.data.Subset(self, indices[:tr])
-        test = torch.utils.data.Subset(self, indices[tr:te])
-        valid = torch.utils.data.Subset(self, indices[te:]) if valid_ratio > 0 else None
-        return train, test, valid
+    def val_dataloader(self):
+        return DataLoader(self.val_dataset, batch_size=self.batch_size, shuffle=False, num_workers=self.num_workers, persistent_workers=True)
+
+    def test_dataloader(self):
+        return DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, num_workers=self.num_workers)

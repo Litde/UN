@@ -4,7 +4,7 @@ from tqdm import tqdm
 
 def test_load_dataset():
     image_paths = []
-    pth = "K:/Polibuda/Sezon_02_Semestr_02/UN/wikiart_200"
+    pth = "K:/Polibuda/Sezon_02_Semestr_02/UN/wikiart"
     progress = tqdm(total=len(os.listdir(pth)), desc="Loading image paths")
     for file_name in os.listdir(pth):
         if file_name.lower().endswith(('.png', '.jpg', '.jpeg')):
@@ -12,7 +12,7 @@ def test_load_dataset():
         progress.update(1)
     progress.close()
 
-    gen = ImageHoleGenerator(holes=3, points=3, debug=False)
+    gen = ImageHoleGenerator(holes=1, points=4, debug=False)
     gen.iterate_images(image_paths)
 
 

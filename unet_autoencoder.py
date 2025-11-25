@@ -1,20 +1,13 @@
+import comet_ml
 import torch
 import torch.nn as nn
-from comet_ml.scripts.comet_check import activate_debug
 from torch import Tensor
 import pytorch_lightning as pl
-from dataclasses import dataclass
 import cv2
+import time
 import numpy as np
 
-def prepare_input(image_pth: str, debug:bool = False) -> Tensor:
-    img = cv2.imread(image_pth)
-    img = cv2.resize(img, (256, 256))
-    img = img.transpose(2, 0, 1)
-    img = img.reshape(1, 3, 256, 256)
-    if debug:
-        print(f"Prepared input shape: {img.shape}")
-    return torch.tensor(img).float()
+
 
 class ConvBlock(nn.Module):
     def __init__(self, in_channels: int, out_channels: int, kernel_size: int, stride: int, padding: int,
@@ -72,10 +65,10 @@ class UNet(nn.Module):
         self.ConvBlock4 = ConvBlock(128, 256, 3, 1, 1, nn.ReLU())
         self.ConvBlock5 = ConvBlock(256, 512, 3, 1, 1, nn.ReLU(), pool_layer=False)
 
-        self.Up1 = UpConvBlock(512, 256, nn.ReLU())
-        self.Up2 = UpConvBlock(256, 128, nn.ReLU())
-        self.Up3 = UpConvBlock(128, 64, nn.ReLU())
-        self.Up4 = UpConvBlock(64, 32, nn.ReLU())
+        self.UpConvBlock1 = UpConvBlock(512, 256, nn.ReLU())
+        self.UpConvBlock2 = UpConvBlock(256, 128, nn.ReLU())
+        self.UpConvBlock3 = UpConvBlock(128, 64, nn.ReLU())
+        self.UpConvBlock4 = UpConvBlock(64, 32, nn.ReLU())
 
         self.ConvBlock6 = ConvBlock(32, 32, 3, 1, 1, nn.ReLU(), pool_layer=False)
 
@@ -89,10 +82,10 @@ class UNet(nn.Module):
         c4, p4 = self.ConvBlock4(p3)
         c5 = self.ConvBlock5(p4)
 
-        u1 = self.Up1(c5, c4)
-        u2 = self.Up2(u1, c3)
-        u3 = self.Up3(u2, c2)
-        u4 = self.Up4(u3, c1)
+        u1 = self.UpConvBlock1(c5, c4)
+        u2 = self.UpConvBlock2(u1, c3)
+        u3 = self.UpConvBlock3(u2, c2)
+        u4 = self.UpConvBlock4(u3, c1)
 
         cl = self.ConvBlock6(u4)
 
@@ -101,23 +94,88 @@ class UNet(nn.Module):
 
 
 class UNetLightning(pl.LightningModule):
-    def __init__(self, criterion: nn.Module = nn.CrossEntropyLoss(), lr: float = 1e-3):
+    def __init__(self, criterion: nn.Module = nn.CrossEntropyLoss(), lr: float = 1e-3,
+                 comet_api_key: str = None, comet_project_name: str = None, comet_workspace: str = None):
         super(UNetLightning, self).__init__()
-        self.seve_hyperparameters()
+        self.save_hyperparameters(ignore=['criterion'])
         self.model = UNet()
         self.criterion = criterion
+        self.comet_api_key = comet_api_key
+        self.comet_project_name = comet_project_name
+        self.comet_workspace = comet_workspace
+        self.experiment = None
+
+        if self.comet_api_key:
+            self.experiment = comet_ml.Experiment(
+                api_key=self.comet_api_key,
+                project_name=self.comet_project_name,
+                workspace=self.comet_workspace
+            )
+            self.experiment.set_name(f"unet_run_{int(time.time())}")
+            try:
+                hparams = dict(self.hparams)
+            except Exception:
+                hparams = {k: v for k, v in self.hparams.items()}
+            self.experiment.log_parameters(hparams)
+
 
     def forward(self, x):
         return self.model(x)
 
     def training_step(self, batch, batch_idx):
-        pass
+        x, y = batch
+        y_hat = self(x)
+        loss = self.criterion(y_hat, y)
+        self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
+        if self.experiment is not None:
+            try:
+                self.experiment.log_metric('train_loss', float(loss.detach().cpu().numpy()), step=int(self.global_step))
+            except Exception:
+                pass
+        return loss
 
     def validation_step(self, batch, batch_idx):
-        pass
+        x, y = batch
+        y_hat = self(x)
+        loss = self.criterion(y_hat, y)
+        self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
+
+        if self.experiment is not None and batch_idx == 0:
+            try:
+                inp = x[0].detach().cpu().numpy()  # (C,H,W)
+                pred = y_hat[0].detach().cpu().numpy()
+
+                inp = np.transpose(inp, (1, 2, 0))
+                pred = np.transpose(pred, (1, 2, 0))
+
+                def to_uint8(img):
+                    img = np.clip(img, 0, 1) if img.max() <= 1.0 else img
+                    img = (img * 255).astype(np.uint8) if img.max() <= 1.0 else img.astype(np.uint8)
+                    return img
+
+                inp_img = to_uint8(inp)
+                pred_img = to_uint8(pred)
+
+                self.experiment.log_image(inp_img, name="val_input", step=int(self.current_epoch))
+                self.experiment.log_image(pred_img, name="val_pred", step=int(self.current_epoch))
+            except Exception:
+                pass
+
+        return loss
 
     def test_step(self, batch, batch_idx):
-        pass
+        x, y = batch
+        y_hat = self(x)
+        loss = self.criterion(y_hat, y)
+        self.log('test_loss', loss)
+
+        if self.experiment is not None:
+            try:
+                self.experiment.log_metric('test_loss', float(loss.detach().cpu().numpy()), step=int(self.global_step))
+            except Exception:
+                pass
+
+        return loss
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
