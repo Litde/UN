@@ -1,22 +1,21 @@
 from torch.utils.data import DataLoader
-
 from unet_autoencoder import UNetLightning
 from dataset import ImageDatasetLightning
 from pytorch_lightning import Trainer
-
+from utils import load_comet_credentials
 
 EPOCHS = 10
 BATCH_SIZE = 1
 LEARNING_RATE = 1e-3
 
-COMET_API_KEY = 'CadJDqKmVOKD754AGrKMLdZDB'  # Replace with your actual Comet API key
+COMET_API_KEY, COMET_PROJECT_NAME, COMET_WORKSPACE_NAME = load_comet_credentials('credentials.json')
 
 
 def train_model():
     data_module = ImageDatasetLightning(corrupted_dir='output/images', original_dir='wikiart', batch_size=BATCH_SIZE)
     data_module.setup()
 
-    model = UNetLightning(lr=LEARNING_RATE, comet_workspace='litde', comet_project_name='UN - inpainting', comet_api_key=COMET_API_KEY)
+    model = UNetLightning(lr=LEARNING_RATE, comet_workspace=COMET_WORKSPACE_NAME, comet_project_name=COMET_PROJECT_NAME, comet_api_key=COMET_API_KEY)
     trainer = Trainer(max_epochs=EPOCHS, accelerator='auto')
 
     trainer.fit(model, data_module)
