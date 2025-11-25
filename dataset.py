@@ -67,11 +67,16 @@ class ImageDatasetLightning(LightningDataModule):
         self.test_dataset = None
         self.num_workers = 0
 
-    def setup(self, stage=None):
+    def setup(self, stage=None, train_ratio: float = 0.7, val_ratio: float = 0.1):
+        """
+            Create train, val, test splits.
+            Also, it automatically splits test datase based on the two given ratios. (train_ratio, val_ratio)
+            So the test_ratio will be 1 - train_ratio - val_ratio.
+        """
         full = ImageDataset(self.corrupted_dir, self.original_dir)
         n = len(full)
-        train_n = int(n * 0.8)
-        val_n = int(n * 0.1)
+        train_n = int(n * train_ratio)
+        val_n = int(n * val_ratio)
         test_n = n - train_n - val_n
 
         self.train_dataset, self.val_dataset, self.test_dataset = random_split(full, [train_n, val_n, test_n])
