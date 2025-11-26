@@ -23,29 +23,34 @@ class DataSet:
         return self.data[idx], self.target[idx]
 
 
-def prepare_data(data_dir):
+def prepare_data(data_dir, target='style'):
     files = os.listdir(data_dir)
     original_map = {}
     data = []
-    target = []
+    style_lbl = []
+    genre_lbl = []
 
     for f in tqdm(files):
         file_name = os.path.splitext(f)[0]  # '0000.jpg' -> '0000'
         tab = file_name.split("_")
         num = int(tab[0])
         style = int(tab[1])
+        genre = int(tab[2])
         original_map[int(num)] = f
         path = os.path.join(data_dir, f)
         img = cv2.imread(path)
         img = cv2.resize(img, (256, 256))
 
         data.append(img)
-        target.append(style)
+        style_lbl.append(style)
+        genre_lbl.append(genre)
 
         if num >= 1000:
             break
-
-    return DataSet(data, target)
+    if target == 'style':
+        return DataSet(data, style_lbl)
+    else:
+        return DataSet(data, genre_lbl)
 
 def reduce_dimensions(data, target, n_neighbors=50, min_dist=0.25, n_components=2, metric='euclidean'):
     reducer = umap.UMAP(n_neighbors=n_neighbors, min_dist=min_dist, n_components=n_components, metric=metric)
@@ -64,11 +69,12 @@ def plot_embedding(embedding, target, output_file='umap_plot.png'):
 
 if __name__ == "__main__":
     data_dir = "wikiart"
-    dataset = prepare_data(data_dir)
+    dataset = prepare_data(data_dir, target='genre')
 
     # Flatten images for UMAP
     flattened_data = [img.flatten() for img in dataset.data]
-
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(flattened_data)
     # Reduce dimensions
     # embedding = reduce_dimensions(flattened_data, np.array(dataset.target))
     # plot_embedding(embedding, np.array(dataset.target))
@@ -93,7 +99,7 @@ if __name__ == "__main__":
     # Apply UMAP with different parameters
     for idx, params in enumerate(param_configs):
         reducer = umap.UMAP(random_state=42, **params)
-        embedding = reducer.fit_transform(flattened_data)
+        embedding = reducer.fit_transform(X_scaled)
 
         ax = axes[idx]
         scatter = ax.scatter(embedding[:, 0], embedding[:, 1], c=dataset.target,
@@ -105,4 +111,5 @@ if __name__ == "__main__":
         ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
+    plt.savefig("umap_parameter_comparison.png")
     plt.show()

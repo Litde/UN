@@ -6,7 +6,7 @@ import io
 
 # --- SETTINGS ---
 OUTPUT_DIR = "wikiart"
-NUM_IMAGES = 10000
+NUM_IMAGES = 5000
 
 # --- CREATE FOLDER ---
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -19,6 +19,7 @@ print("Starting download...")
 saved_count = 0
 for sample in tqdm(ds):
     style = sample["style"]
+    genre = sample["genre"]
 
     # Get image
     img_bytes = sample["image"]
@@ -28,7 +29,7 @@ for sample in tqdm(ds):
     else:
         img = img_bytes
 
-    img.save(os.path.join(OUTPUT_DIR, f"{saved_count:04d}_{style:02d}.jpg"))
+    img.save(os.path.join(OUTPUT_DIR, f"{saved_count:04d}_{style:02d}_{genre:02d}.jpg"))
     saved_count += 1
 
     if saved_count % 20 == 0:
