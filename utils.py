@@ -1,5 +1,7 @@
 import json
 import os
+from torchviz import make_dot
+import torch
 
 EXPECTED_KEYS = {"COMET_API_KEY", "COMET_PROJECT_NAME", "COMET_WORKSPACE_NAME"}
 
@@ -44,3 +46,38 @@ def load_comet_credentials(path: str) -> dict:
             raise ValueError(f"Key '{key}' must be a string, got {type(data[key]).__name__}")
 
     return data
+
+
+from torchviz import make_dot
+import torch
+
+
+def plot_unet_architecture(model, input_shape=(1, 3, 256, 256), filename="architecture/unet_architecture"):
+    """
+    Generates an architecture plot for the UNet model using torchviz.
+
+    Args:
+        model: PyTorch model (nn.Module)
+        input_shape: Shape of a dummy input tensor
+        filename: Output file name (without extension)
+    """
+    model.eval()
+
+    # Make dummy input
+    x = torch.randn(input_shape)
+
+    # Forward pass
+    y = model(x)
+
+    # Create graph
+    graph = make_dot(y, params=dict(model.named_parameters()))
+
+    # Save diagram (PDF + PNG)
+    graph.render(filename, format="png")
+    graph.render(filename, format="pdf")
+
+    print(f"Architecture saved as: {filename}.png and {filename}.pdf")
+
+
+
+

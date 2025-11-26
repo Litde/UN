@@ -1,14 +1,15 @@
-from torch.utils.data import DataLoader
+import comet_ml
 from unet_autoencoder import UNetLightning
 from dataset import ImageDatasetLightning
 from pytorch_lightning import Trainer
 from utils import load_comet_credentials
 
-EPOCHS = 10
-BATCH_SIZE = 1
+EPOCHS = 2
+BATCH_SIZE = 32
 LEARNING_RATE = 1e-3
 
-COMET_API_KEY, COMET_PROJECT_NAME, COMET_WORKSPACE_NAME = load_comet_credentials('credentials.json')
+credentials_data = load_comet_credentials('credentials.json')
+COMET_API_KEY, COMET_PROJECT_NAME, COMET_WORKSPACE_NAME = credentials_data['COMET_API_KEY'], credentials_data['COMET_PROJECT_NAME'], credentials_data['COMET_WORKSPACE_NAME']
 
 
 def train_model():

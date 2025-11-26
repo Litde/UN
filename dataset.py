@@ -5,7 +5,7 @@ from torch import Tensor
 from torch.utils.data import Dataset, DataLoader, random_split
 from pytorch_lightning import LightningDataModule
 from typing import List, Tuple
-
+from tqdm import tqdm
 
 def prepare_input(image_pth: str, debug:bool = False) -> Tensor:
     img = cv2.imread(image_pth)
@@ -32,7 +32,7 @@ class ImageDataset(Dataset):
             original_map[int(num)] = f  # convert to int for matching
 
         files_corrupted = os.listdir(self.corrupted_dir)
-        for corrupted_file in files_corrupted:
+        for corrupted_file in tqdm(files_corrupted, desc=f"Loading {self.split} dataset"):
             corrupted_num_str = os.path.splitext(corrupted_file)[0].replace("corrupted_", "")
             corrupted_num = int(corrupted_num_str)
 

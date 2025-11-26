@@ -68,12 +68,12 @@ class ImageHoleGenerator:
 
     def _save_all(self, corrupted, mask, output):
         os.makedirs("../output/images", exist_ok=True)
-        os.makedirs("../output/masks", exist_ok=True)
-        os.makedirs("../output/outputs", exist_ok=True)
+        # os.makedirs("../output/masks", exist_ok=True)
+        # os.makedirs("../output/outputs", exist_ok=True)
 
         cv2.imwrite(f"../output/images/corrupted_{self.num_of_iteration}.png", corrupted[:, :, ::-1])
-        cv2.imwrite(f"../output/masks/mask{self.num_of_iteration}.png", mask * 255)
-        cv2.imwrite(f"../output/outputs/output{self.num_of_iteration}.png", output[:, :, ::-1])
+        # cv2.imwrite(f"../output/masks/mask{self.num_of_iteration}.png", mask * 255)
+        # cv2.imwrite(f"../output/outputs/output{self.num_of_iteration}.png", output[:, :, ::-1])
 
     def apply(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         if self.image is None:
