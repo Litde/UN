@@ -1,182 +1,178 @@
+from datetime import datetime
+
+import cv2
+from PIL import Image
 import comet_ml
 import torch
 import torch.nn as nn
-from torch import Tensor
+from pytorch_msssim import ssim
 import pytorch_lightning as pl
-import cv2
-import time
-import numpy as np
 
+
+L1 = nn.L1Loss()
+SSIM = ssim
 
 
 class ConvBlock(nn.Module):
-    def __init__(self, in_channels: int, out_channels: int, kernel_size: int, stride: int, padding: int,
-                 activation: nn.Module, pool_layer:bool = True):
-        super(ConvBlock, self).__init__()
+    def __init__(self, in_ch, out_ch, pool=False):
+        super().__init__()
+        self.pool = pool
+        self.block = nn.Sequential(
+            nn.Conv2d(in_ch, out_ch, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_ch, out_ch, 3, padding=1),
+            nn.ReLU(inplace=True),
+        )
+        if pool:
+            self.down = nn.MaxPool2d(2)
 
-        self.activation = activation
-        self.pool_layer = pool_layer
+    def forward(self, x):
+        x = self.block(x)
+        return (x, self.down(x)) if self.pool else x
 
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size, stride, padding)
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-
-    def forward(self, connecting_layer):
-        conv = self.conv1(connecting_layer)
-        act = self.activation(conv)
-        conv2 = self.conv2(act)
-        act2 = self.activation(conv2)
-
-        if self.pool_layer:
-            pooled = self.pool(act2)
-            return act2, pooled
-
-        return act2
 
 class UpConvBlock(nn.Module):
-    def __init__(self, in_channels: int, out_channels: int, activation: nn.Module):
-        super(UpConvBlock, self).__init__()
-
-        self.activation = activation
-
-        self.conv1 = nn.Conv2d(in_channels, out_channels, 3, padding=1)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, 3, padding=1)
-        self.up = nn.ConvTranspose2d(in_channels, out_channels, 2, stride=2)
+    def __init__(self, in_ch, out_ch):
+        super().__init__()
+        self.up = nn.ConvTranspose2d(in_ch, out_ch, 2, stride=2)
+        self.conv = nn.Sequential(
+            nn.Conv2d(out_ch*2, out_ch, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_ch, out_ch, 3, padding=1),
+            nn.ReLU(inplace=True),
+        )
 
     def forward(self, x, skip):
         x = self.up(x)
-
         x = torch.cat([x, skip], dim=1)
-
-        x = self.activation(self.conv1(x))
-        x = self.activation(self.conv2(x))
-
-        return x
-
+        return self.conv(x)
 
 
 class UNet(nn.Module):
     def __init__(self):
-        super(UNet, self).__init__()
+        super().__init__()
+        self.cb1 = ConvBlock(3,   32, pool=True)
+        self.cb2 = ConvBlock(32,  64, pool=True)
+        self.cb3 = ConvBlock(64, 128, pool=True)
+        self.cb4 = ConvBlock(128, 256, pool=True)
+        self.cb5 = ConvBlock(256, 512, pool=False)
 
-        self.ConvBlock1 = ConvBlock(3, 32, 3, 1, 1, nn.ReLU())
-        self.ConvBlock2 = ConvBlock(32, 64, 3, 1, 1, nn.ReLU())
-        self.ConvBlock3 = ConvBlock(64, 128, 3, 1, 1, nn.ReLU())
-        self.ConvBlock4 = ConvBlock(128, 256, 3, 1, 1, nn.ReLU())
-        self.ConvBlock5 = ConvBlock(256, 512, 3, 1, 1, nn.ReLU(), pool_layer=False)
+        self.up1 = UpConvBlock(512, 256)
+        self.up2 = UpConvBlock(256, 128)
+        self.up3 = UpConvBlock(128,  64)
+        self.up4 = UpConvBlock(64,   32)
 
-        self.UpConvBlock1 = UpConvBlock(512, 256, nn.ReLU())
-        self.UpConvBlock2 = UpConvBlock(256, 128, nn.ReLU())
-        self.UpConvBlock3 = UpConvBlock(128, 64, nn.ReLU())
-        self.UpConvBlock4 = UpConvBlock(64, 32, nn.ReLU())
-
-        self.ConvBlock6 = ConvBlock(32, 32, 3, 1, 1, nn.ReLU(), pool_layer=False)
-
-        self.last_conv = nn.Conv2d(32, 3, 3, padding=1)
-        self.output = nn.Sigmoid()
+        self.out = nn.Sequential(
+            nn.Conv2d(32, 3, 3, padding=1),
+            nn.Sigmoid()
+        )
 
     def forward(self, x):
-        c1, p1 = self.ConvBlock1(x)
-        c2, p2 = self.ConvBlock2(p1)
-        c3, p3 = self.ConvBlock3(p2)
-        c4, p4 = self.ConvBlock4(p3)
-        c5 = self.ConvBlock5(p4)
+        c1, p1 = self.cb1(x)
+        c2, p2 = self.cb2(p1)
+        c3, p3 = self.cb3(p2)
+        c4, p4 = self.cb4(p3)
+        c5     = self.cb5(p4)
 
-        u1 = self.UpConvBlock1(c5, c4)
-        u2 = self.UpConvBlock2(u1, c3)
-        u3 = self.UpConvBlock3(u2, c2)
-        u4 = self.UpConvBlock4(u3, c1)
-
-        cl = self.ConvBlock6(u4)
-
-        out = self.output(self.last_conv(cl))
-        return out
+        x = self.up1(c5, c4)
+        x = self.up2(x, c3)
+        x = self.up3(x, c2)
+        x = self.up4(x, c1)
+        return self.out(x)
 
 
 class UNetLightning(pl.LightningModule):
-    def __init__(self, criterion: nn.Module = nn.CrossEntropyLoss(), lr: float = 1e-3,
-                 comet_api_key: str = None, comet_project_name: str = None, comet_workspace: str = None):
-        super(UNetLightning, self).__init__()
-        self.save_hyperparameters(ignore=['criterion'])
+    def __init__(self, lr=1e-3, comet_api_key=None, comet_project_name=None, comet_workspace=None):
+        super().__init__()
+        self.save_hyperparameters()
+
         self.model = UNet()
-        self.criterion = criterion
-        self.comet_api_key = comet_api_key
-        self.comet_project_name = comet_project_name
-        self.comet_workspace = comet_workspace
-        self.experiment = None
+        self.lr = lr
 
-        if self.comet_api_key:
-            self.experiment = comet_ml.Experiment(
-                api_key=self.comet_api_key,
-                project_name=self.comet_project_name,
-                workspace=self.comet_workspace
+        self.l1 = nn.L1Loss()
+        self.ssim_weight = 0.15
+
+        self.experiment = (
+            comet_ml.Experiment(
+                api_key=comet_api_key,
+                project_name=comet_project_name,
+                workspace=comet_workspace,
+                auto_output_logging=False,
+                auto_param_logging=False,
+                auto_metric_logging=False,
             )
-            self.experiment.set_name(f"unet_run_{int(time.time())}")
-            try:
-                hparams = dict(self.hparams)
-            except Exception:
-                hparams = {k: v for k, v in self.hparams.items()}
-            self.experiment.log_parameters(hparams)
+            if comet_api_key else None
+        )
 
+        if self.experiment is not None:
+            self.experiment.set_name(f"UNet_Autoencoder_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}")
 
     def forward(self, x):
         return self.model(x)
 
-    def training_step(self, batch, batch_idx):
+    def compute_loss(self, pred, target):
+        ssim_val = SSIM(pred, target, data_range=1.0)
+        return 0.85 * self.l1(pred, target) + self.ssim_weight * (1 - ssim_val)
+
+    def training_step(self, batch, _):
         x, y = batch
+
         y_hat = self(x)
-        loss = self.criterion(y_hat, y)
-        self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
-        if self.experiment is not None:
-            try:
-                self.experiment.log_metric('train_loss', float(loss.detach().cpu().numpy()), step=int(self.global_step))
-            except Exception:
-                pass
-        return loss
 
-    def validation_step(self, batch, batch_idx):
-        x, y = batch
-        y_hat = self(x)
-        loss = self.criterion(y_hat, y)
-        self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
+        loss = self.compute_loss(y_hat, y)
 
-        if self.experiment is not None and batch_idx == 0:
-            try:
-                inp = x[0].detach().cpu().numpy()  # (C,H,W)
-                pred = y_hat[0].detach().cpu().numpy()
+        self.log("train_loss", loss, on_step=True, prog_bar=True)
 
-                inp = np.transpose(inp, (1, 2, 0))
-                pred = np.transpose(pred, (1, 2, 0))
-
-                def to_uint8(img):
-                    img = np.clip(img, 0, 1) if img.max() <= 1.0 else img
-                    img = (img * 255).astype(np.uint8) if img.max() <= 1.0 else img.astype(np.uint8)
-                    return img
-
-                inp_img = to_uint8(inp)
-                pred_img = to_uint8(pred)
-
-                self.experiment.log_image(inp_img, name="val_input", step=int(self.current_epoch))
-                self.experiment.log_image(pred_img, name="val_pred", step=int(self.current_epoch))
-            except Exception:
-                pass
+        if self.experiment:
+            self.experiment.log_metric("train_loss", loss.item(), step=self.global_step)
 
         return loss
 
+    @torch.no_grad()
     def test_step(self, batch, batch_idx):
         x, y = batch
-        y_hat = self(x)
-        loss = self.criterion(y_hat, y)
-        self.log('test_loss', loss)
 
-        if self.experiment is not None:
-            try:
-                self.experiment.log_metric('test_loss', float(loss.detach().cpu().numpy()), step=int(self.global_step))
-            except Exception:
-                pass
+        y_hat = self(x)
+
+        loss = self.compute_loss(y_hat, y)
+        self.log("test_loss", loss, prog_bar=True)
+
+        if self.experiment and batch_idx == 0:
+            self._log_images_to_comet(x[0], y_hat[0], y[0])
 
         return loss
 
+    @torch.no_grad()
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+
+        y_hat = self(x)
+
+        loss = self.compute_loss(y_hat, y)
+        self.log("val_loss", loss, on_epoch=True, prog_bar=True)
+
+        if self.experiment and batch_idx == 0:
+            self._log_images_to_comet(x[0], y_hat[0], y[0])
+
+        return loss
+
+    def _log_images_to_comet(self, x, pred, y):
+        if not self.experiment:
+            return
+
+        img = (x[:3]).byte().permute(1, 2, 0).numpy()
+        out = (pred[:3]).byte().permute(1, 2, 0).numpy()
+        tgt = (y[:3]).byte().permute(1, 2, 0).numpy()
+
+        cv2.imshow("img", img)
+        cv2.imshow("out", out)
+        cv2.imshow("tgt", tgt)
+
+        self.experiment.log_image(img, name="val_input", step=self.current_epoch)
+        self.experiment.log_image(out, name="val_output", step=self.current_epoch)
+        self.experiment.log_image(tgt, name="val_target", step=self.current_epoch)
+
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
+        return torch.optim.Adam(self.parameters(), lr=self.lr)
+
 

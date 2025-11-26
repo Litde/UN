@@ -1,109 +1,87 @@
-from typing import Any, Generator
-
-import numpy as np
-import cv2
-import random
-
-from numpy import ndarray
-from tqdm import tqdm
-
-
-from tqdm import tqdm
-import cv2
-import numpy as np
-import random
 import os
+import cv2
+import numpy as np
+import shutil
+from pathlib import Path
+from tqdm import tqdm
+
 
 class ImageHoleGenerator:
-    def __init__(self, holes:int=1, points:int=5, debug:bool=False) -> None:
+    def __init__(self, holes: int = 1, points: int = 5, debug: bool = False) -> None:
         self.debug = debug
         self.holes = holes
         self.points = points
         self.image = None
-        self.output_image = None
-        self.num_of_iteration = 0
+        self.num = 0
 
-    def load_image(self, image_pth:str) -> None:
-        self.image = cv2.imread(image_pth)[:, :, ::-1]
+        # pre-create output directory
+        self.out_dir = Path("../output/images")
+        if self.out_dir.exists():
+            shutil.rmtree(self.out_dir)
+        self.out_dir.mkdir(parents=True, exist_ok=True)
 
-    def _random_polygon(self, h, w):
-        """Generate one jagged, irregular polygon like scribbles."""
-        assert h > 0 and w > 0 or self.image is None, "Image must be loaded or valid dimensions provided."
+        # fast random generator
+        self.rng = np.random.default_rng()
 
-        cx = random.randint(int(0.1*w), int(0.9*w))
-        cy = random.randint(int(0.1*h), int(0.9*h))
+    def load_image(self, image_pth: str) -> None:
+        img = cv2.imread(image_pth, cv2.IMREAD_COLOR)
+        if img is None:
+            raise ValueError(f"Cannot read image: {image_pth}")
+        self.image = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+    def _random_polygon(self, h: int, w: int) -> np.ndarray:
+        """Generate a fast irregular polygon."""
+        cx = self.rng.integers(int(0.1 * w), int(0.9 * w))
+        cy = self.rng.integers(int(0.1 * h), int(0.9 * h))
         max_radius = min(h, w) // 6
-        radius = random.randint(max_radius // 4, max_radius)
+        radius = self.rng.integers(max_radius // 4, max_radius)
 
-        points = []
-        angle = 0
-        while angle < 2 * np.pi:
-            angle_step = random.uniform(np.pi/12, np.pi/4)
-            r = radius * random.uniform(0.3, 1.0)
-            x = int(cx + r * np.cos(angle))
-            y = int(cy + r * np.sin(angle))
-            points.append([x, y])
-            angle += angle_step
+        # generate angles + random radii in one vectorized block
+        step_count = self.rng.integers(8, 20)
+        angles = np.cumsum(self.rng.uniform(np.pi/12, np.pi/4, step_count))
+        angles = angles[angles < 2 * np.pi]
+        r = radius * self.rng.uniform(0.3, 1.0, len(angles))
 
-        return np.array(points, dtype=np.int32)
+        x = (cx + r * np.cos(angles)).astype(np.int32)
+        y = (cy + r * np.sin(angles)).astype(np.int32)
+
+        return np.stack([x, y], axis=1)
 
     def generate_holes(self) -> tuple[np.ndarray, np.ndarray]:
-        """Generate holes and return corrupted image and mask."""
         h, w, _ = self.image.shape
         mask = np.zeros((h, w), dtype=np.uint8)
 
-        for _ in range(self.holes):
-            poly = self._random_polygon(h, w)
-            cv2.fillPoly(mask, [poly], 1)
+        # generate polygons
+        polys = [self._random_polygon(h, w) for _ in range(self.holes)]
+        cv2.fillPoly(mask, polys, 1)
 
+        # apply holes
         corrupted = self.image.copy()
         corrupted[mask == 1] = 0
 
-        if self.debug:
-            cv2.imshow("Holes", corrupted[:, :, ::-1])
-            cv2.waitKey(0)
-            cv2.destroyAllWindows()
-
         return corrupted, mask
 
-    def _save_all(self, corrupted, mask, output):
-        os.makedirs("../output/images", exist_ok=True)
-        # os.makedirs("../output/masks", exist_ok=True)
-        # os.makedirs("../output/outputs", exist_ok=True)
+    def _save(self, corrupted: np.ndarray) -> None:
+        # faster imwrite params
+        path = self.out_dir / f"corrupted_{self.num}.png"
+        cv2.imwrite(str(path), cv2.cvtColor(corrupted, cv2.COLOR_RGB2BGR),
+                    [cv2.IMWRITE_PNG_COMPRESSION, 3])
 
-        cv2.imwrite(f"../output/images/corrupted_{self.num_of_iteration}.png", corrupted[:, :, ::-1])
-        # cv2.imwrite(f"../output/masks/mask{self.num_of_iteration}.png", mask * 255)
-        # cv2.imwrite(f"../output/outputs/output{self.num_of_iteration}.png", output[:, :, ::-1])
-
-    def apply(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        if self.image is None:
-            raise ValueError("No image loaded. Call load_image first.")
-
+    def apply(self):
         corrupted, mask = self.generate_holes()
         mask_channel = mask[..., None]
-
         output = np.concatenate([corrupted, mask_channel], axis=2)
 
         if self.debug:
-            print("Corrupted shape:", corrupted.shape)
-            print("Mask shape:", mask_channel.shape)
-            print("Output shape:", output.shape)
+            print("Corrupted:", corrupted.shape)
+            print("Mask:", mask_channel.shape)
+            print("Output:", output.shape)
 
-        self._save_all(corrupted, mask_channel, output)
-
+        self._save(corrupted)
         return corrupted, mask_channel, output
 
-    def iterate_images(self, image_paths:list[str]) -> None:
-        progress = tqdm(total=len(image_paths), desc="Processing images")
-        for image_pth in image_paths:
-            self.load_image(image_pth)
+    def iterate_images(self, image_paths: list[str]) -> None:
+        for p in tqdm(image_paths, desc="Processing"):
+            self.load_image(p)
             self.apply()
-            self.num_of_iteration += 1
-            progress.update(1)
-        progress.close()
-
-
-
-
-
-
+            self.num += 1

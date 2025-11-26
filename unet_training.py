@@ -4,8 +4,8 @@ from dataset import ImageDatasetLightning
 from pytorch_lightning import Trainer
 from utils import load_comet_credentials
 
-EPOCHS = 2
-BATCH_SIZE = 32
+EPOCHS = 10
+BATCH_SIZE = 4
 LEARNING_RATE = 1e-3
 
 credentials_data = load_comet_credentials('credentials.json')

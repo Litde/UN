@@ -2,24 +2,26 @@ from datasets import load_dataset
 from tqdm import tqdm
 import os
 from PIL import Image
+import shutil
 import io
 
 # --- SETTINGS ---
 OUTPUT_DIR = "wikiart"
-NUM_IMAGES = 5000
+NUM_IMAGES = 500
 
 # --- CREATE FOLDER ---
+shutil.rmtree(OUTPUT_DIR)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # --- LOAD DATASET (streaming = True saves memory) ---
-ds = load_dataset("huggan/wikiart", split="train", streaming=True)
+ds = load_dataset("Artificio/WikiArt_Full", split="train", streaming=True)
 
 print("Starting download...")
 
 saved_count = 0
 for sample in tqdm(ds):
     # Check style
-    if sample["style"] != 21:
+    if sample["genre"] != 'portrait':
         continue
 
     # Get image
