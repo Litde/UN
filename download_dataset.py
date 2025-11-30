@@ -10,7 +10,8 @@ OUTPUT_DIR = "wikiart"
 NUM_IMAGES = 500
 
 # --- CREATE FOLDER ---
-shutil.rmtree(OUTPUT_DIR)
+if os.path.exists(OUTPUT_DIR):
+    shutil.rmtree(OUTPUT_DIR)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # --- LOAD DATASET (streaming = True saves memory) ---
@@ -21,8 +22,9 @@ print("Starting download...")
 saved_count = 0
 for sample in tqdm(ds):
     # Check style
-    if sample["genre"] != 'portrait':
-        continue
+
+    # if sample["genre"] != 'portrait':
+    #     continue
 
     # Get image
     img_bytes = sample["image"]
@@ -35,10 +37,10 @@ for sample in tqdm(ds):
     img.save(os.path.join(OUTPUT_DIR, f"{saved_count:04d}.jpg"))
     saved_count += 1
 
-    if saved_count % 20 == 0:
-        print(f"Saved {saved_count} images...")
+    # if saved_count % 20 == 0:
+    #     print(f"Saved {saved_count} images...")
 
-    if saved_count >= NUM_IMAGES:
-        break
+    # if saved_count >= NUM_IMAGES:
+    #     break
 
 print("Done! Images saved in:", OUTPUT_DIR)

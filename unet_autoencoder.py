@@ -1,3 +1,4 @@
+# file: `unet_autoencoder.py` (updated _log_images_to_comet)
 from datetime import datetime
 
 import cv2
@@ -8,6 +9,9 @@ import torch.nn as nn
 from pytorch_msssim import ssim
 import pytorch_lightning as pl
 
+# enable reduced-precision matmul for Tensor Cores when CUDA is available
+if torch.cuda.is_available():
+    torch.set_float32_matmul_precision('medium')
 
 L1 = nn.L1Loss()
 SSIM = ssim
@@ -92,20 +96,9 @@ class UNetLightning(pl.LightningModule):
         self.l1 = nn.L1Loss()
         self.ssim_weight = 0.15
 
-        self.experiment = (
-            comet_ml.Experiment(
-                api_key=comet_api_key,
-                project_name=comet_project_name,
-                workspace=comet_workspace,
-                auto_output_logging=False,
-                auto_param_logging=False,
-                auto_metric_logging=False,
-            )
-            if comet_api_key else None
-        )
-
-        if self.experiment is not None:
-            self.experiment.set_name(f"UNet_Autoencoder_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}")
+        # Do not create a separate comet_ml.Experiment here.
+        # Use the Trainer/CometLogger integration (self.logger.experiment) instead.
+        self._example_batch = None  # will hold one example for epoch-level image logging
 
     def forward(self, x):
         return self.model(x)
@@ -116,63 +109,102 @@ class UNetLightning(pl.LightningModule):
 
     def training_step(self, batch, _):
         x, y = batch
+        device = self.device
+        x = x.to(device, non_blocking=True)
+        y = y.to(device, non_blocking=True)
 
         y_hat = self(x)
 
         loss = self.compute_loss(y_hat, y)
 
-        self.log("train_loss", loss, on_step=True, prog_bar=True)
+        # log training loss every step (CometLogger will pick this up)
+        self.log("train_loss", loss, on_step=True, on_epoch=False, prog_bar=True)
 
-        if self.experiment:
-            self.experiment.log_metric("train_loss", loss.item(), step=self.global_step)
+        # removed manual self.experiment.log_metric(...) so metrics are only logged via self.log
 
         return loss
 
     @torch.no_grad()
     def test_step(self, batch, batch_idx):
         x, y = batch
+        device = self.device
+        x = x.to(device, non_blocking=True)
+        y = y.to(device, non_blocking=True)
 
         y_hat = self(x)
 
         loss = self.compute_loss(y_hat, y)
         self.log("test_loss", loss, prog_bar=True)
 
-        if self.experiment and batch_idx == 0:
-            self._log_images_to_comet(x[0], y_hat[0], y[0])
-
+        # keep per-test-image logging only if needed; here we avoid per-step image logging
         return loss
 
     @torch.no_grad()
     def validation_step(self, batch, batch_idx):
         x, y = batch
+        device = self.device
+        x = x.to(device, non_blocking=True)
+        y = y.to(device, non_blocking=True)
 
         y_hat = self(x)
 
         loss = self.compute_loss(y_hat, y)
-        self.log("val_loss", loss, on_epoch=True, prog_bar=True)
+        # aggregate validation loss per-epoch; no per-step val metric required
+        self.log("val_loss", loss, on_epoch=True, on_step=False, prog_bar=True)
 
-        if self.experiment and batch_idx == 0:
-            self._log_images_to_comet(x[0], y_hat[0], y[0])
+        # store first sample of the first batch (detached to CPU) for epoch-level image logging
+        if batch_idx == 0:
+            try:
+                self._example_batch = (
+                    x[0].detach().cpu().clone(),
+                    y_hat[0].detach().cpu().clone(),
+                    y[0].detach().cpu().clone(),
+                )
+            except Exception:
+                self._example_batch = None
 
         return loss
 
-    def _log_images_to_comet(self, x, pred, y):
-        if not self.experiment:
+    def on_validation_epoch_end(self):
+        # Log images once per validation epoch using the Trainer's logger (CometLogger)
+        if not self._example_batch:
             return
 
-        img = (x[:3]).byte().permute(1, 2, 0).numpy()
-        out = (pred[:3]).byte().permute(1, 2, 0).numpy()
-        tgt = (y[:3]).byte().permute(1, 2, 0).numpy()
+        # Get comet experiment from the logger if available
+        exp = None
+        logger = getattr(self, "logger", None)
+        if logger is not None:
+            # CometLogger exposes the Experiment via .experiment
+            exp = getattr(logger, "experiment", None)
 
-        cv2.imshow("img", img)
-        cv2.imshow("out", out)
-        cv2.imshow("tgt", tgt)
+        if exp is None:
+            # nothing to do if no comet experiment present
+            self._example_batch = None
+            return
 
-        self.experiment.log_image(img, name="val_input", step=self.current_epoch)
-        self.experiment.log_image(out, name="val_output", step=self.current_epoch)
-        self.experiment.log_image(tgt, name="val_target", step=self.current_epoch)
+        x, pred, y = self._example_batch
+
+        def to_uint8(t):
+            img = (t.clamp(0.0, 1.0) * 255.0).to(torch.uint8).permute(1, 2, 0).numpy()
+            return img
+
+        img = to_uint8(x[:3])
+        out = to_uint8(pred[:3])
+        tgt = to_uint8(y[:3])
+
+        epoch = int(self.current_epoch)
+        step = int(self.global_step)
+
+        # log images once per epoch; use epoch as step/metadata for clarity
+        try:
+            exp.log_image(img, name=f"val_input_epoch_{epoch}", step=epoch, metadata={"epoch": epoch})
+            exp.log_image(out, name=f"val_output_epoch_{epoch}", step=epoch, metadata={"epoch": epoch})
+            exp.log_image(tgt, name=f"val_target_epoch_{epoch}", step=epoch, metadata={"epoch": epoch})
+        except Exception:
+            pass
+
+        # clear stored sample
+        self._example_batch = None
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.lr)
-
-
