@@ -186,3 +186,5 @@ fabric.properties
 
 credentials.json
 /wikiart/
+*.pt
+*.ckpt
