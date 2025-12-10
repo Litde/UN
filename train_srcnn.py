@@ -9,7 +9,7 @@ import torch
 import os
 import glob
 
-EPOCHS = 10
+EPOCHS = 25
 BATCH_SIZE = 32
 LEARNING_RATE = 1e-3
 
