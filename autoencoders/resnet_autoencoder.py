@@ -200,8 +200,16 @@ class UpBlock(nn.Module):
             if x.shape[-2:] != skip.shape[-2:]:
                 skip = nn.functional.interpolate(skip, size=x.shape[-2:], mode="bilinear", align_corners=False)
             if self.proj_skip is None or self.proj_skip.in_channels != skip.shape[1]:
-                self.proj_skip = nn.Conv2d(skip.shape[1], self.mid_ch, kernel_size=1, bias=False)
+                new = nn.Conv2d(skip.shape[1], self.mid_ch, kernel_size=1, bias=False)
+
+                new = new.to(x.device, dtype=x.dtype)
+                self.proj_skip = new
+                
+                if hasattr(self, "_optimizer_ref") and self._optimizer_ref is not None:
+                    self._optimizer_ref.add_param_group({"params": self.proj_skip.parameters()})
+
             skip = self.proj_skip(skip)
+
             x = torch.cat([x, skip], dim=1) # [B, 2*mid_ch, H, W]
             x = self.conv2_skip(x)
         else:
