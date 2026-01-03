@@ -233,26 +233,6 @@ class ArtDatabase:
             raise RuntimeError("PyTorch is required for as_torch(). pip install torch") from e
 
         ds = self.get_split(split)
-
-        class _TorchWrapper:
-            def __init__(self, base, transform):
-                self.base = base
-                self.transform = transform
-                self.label_cols = [c for c in ["style", "genre", "artist"] if c in base.column_names]
-
-            def __len__(self):
-                return len(self.base)
-
-            def __getitem__(self, idx):
-                row = self.base[idx]
-                img = row["image"]
-                if not isinstance(img, Image.Image):
-                    img = Image.fromarray(img)
-                if self.transform is not None:
-                    img = self.transform(img)
-                labels = {k: row.get(k) for k in self.label_cols}
-                return img, labels
-
         return _TorchWrapper(ds, transform)
 
     # -----------------------------
@@ -278,23 +258,46 @@ class ArtDatabase:
             "lanczos": Image.LANCZOS,
         }[resize_interpolation]
 
-        class _SRWrapper:
-            def __init__(self, base):
-                self.base = base
+        return _SRWrapper(ds, downscale, pil_interp)
 
-            def __len__(self):
-                return len(self.base)
 
-            def __getitem__(self, idx) -> Tuple[Image.Image, Image.Image]:
-                row = self.base[idx]
-                hr = row["image"]
-                if not isinstance(hr, Image.Image):
-                    hr = Image.fromarray(hr)
-                w, h = hr.size
-                lr = hr.resize((max(1, w // downscale), max(1, h // downscale)), resample=pil_interp)
-                return lr, hr
+class _TorchWrapper:
+    def __init__(self, base, transform):
+        self.base = base
+        self.transform = transform
+        self.label_cols = [c for c in ["style", "genre", "artist"] if c in base.column_names]
 
-        return _SRWrapper(ds)
+    def __len__(self):
+        return len(self.base)
+
+    def __getitem__(self, idx):
+        row = self.base[idx]
+        img = row["image"]
+        if not isinstance(img, Image.Image):
+            img = Image.fromarray(img)
+        if self.transform is not None:
+            img = self.transform(img)
+        labels = {k: row.get(k) for k in self.label_cols}
+        return img, labels
+
+
+class _SRWrapper:
+    def __init__(self, base, downscale, pil_interp):
+        self.base = base
+        self.downscale = downscale
+        self.pil_interp = pil_interp
+
+    def __len__(self):
+        return len(self.base)
+
+    def __getitem__(self, idx) -> Tuple[Image.Image, Image.Image]:
+        row = self.base[idx]
+        hr = row["image"]
+        if not isinstance(hr, Image.Image):
+            hr = Image.fromarray(hr)
+        w, h = hr.size
+        lr = hr.resize((max(1, w // self.downscale), max(1, h // self.downscale)), resample=self.pil_interp)
+        return lr, hr
 
 
 __all__ = ["ArtDatabase"]

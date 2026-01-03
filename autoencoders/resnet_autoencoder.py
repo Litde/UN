@@ -202,7 +202,7 @@ class UpBlock(nn.Module):
             if self.proj_skip is None or self.proj_skip.in_channels != skip.shape[1]:
                 new = nn.Conv2d(skip.shape[1], self.mid_ch, kernel_size=1, bias=False)
 
-                new = new.to(x.device, dtype=x.dtype)
+                new = new.to(x.device, dtype=torch.float32)
                 self.proj_skip = new
                 
                 if hasattr(self, "_optimizer_ref") and self._optimizer_ref is not None:

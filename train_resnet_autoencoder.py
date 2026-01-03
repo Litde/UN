@@ -116,12 +116,13 @@ def seed_all(seed: int):
     torch.backends.cudnn.deterministic = False
     torch.backends.cudnn.benchmark = True
 
-def save_checkpoint(out_dir: Path, tag: str, model, opt, sched, epoch, step, args, keep_last: int = 3):
+def save_checkpoint(out_dir: Path, tag: str, model, opt, sched, scaler, epoch, step, args, keep_last: int = 3):
     out_dir.mkdir(parents=True, exist_ok=True)
     ckpt = {
         "state_dict": model.state_dict(),
         "optimizer": opt.state_dict() if opt is not None else None,
         "scheduler": sched.state_dict() if sched is not None else None,
+        "scaler": scaler.state_dict() if scaler is not None else None,
         "epoch": epoch,
         "global_step": step,
         "args": vars(args),
@@ -155,7 +156,7 @@ def save_checkpoint(out_dir: Path, tag: str, model, opt, sched, epoch, step, arg
 
     return path, enc_path, dec_path
 
-def load_checkpoint(path: str, model, opt=None, sched=None, map_location="auto"):
+def load_checkpoint(path: str, model, opt=None, sched=None, scaler=None, map_location="auto"):
     import torch as _torch
 
     ckpt = _torch.load(path, map_location=map_location, weights_only=False)
@@ -181,6 +182,12 @@ def load_checkpoint(path: str, model, opt=None, sched=None, map_location="auto")
             sched.load_state_dict(ckpt["scheduler"])
         except Exception as e:
             print(f"[load] skip scheduler state: {e}")
+
+    if scaler is not None and ckpt.get("scaler") is not None:
+        try:
+            scaler.load_state_dict(ckpt["scaler"])
+        except Exception as e:
+            print(f"[load] skip scaler state: {e}")
 
     # --- 4) RNG – opcjonalne; bezpiecznie rzutujemy albo pomijamy ---
     rng = ckpt.get("rng_state")
@@ -324,6 +331,7 @@ def main():
 
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=max(1, args.epochs))
+    scaler = torch.amp.GradScaler('cuda', enabled=torch.cuda.is_available())
 
     l1 = nn.L1Loss()
 
@@ -333,7 +341,7 @@ def main():
     # --------- RESUME ----------
     if args.resume and os.path.isfile(args.resume):
         print(f"[resume] Loading from: {args.resume}")
-        start_epoch, global_step = load_checkpoint(args.resume, model, opt, sched, map_location=device)
+        start_epoch, global_step = load_checkpoint(args.resume, model, opt, sched, scaler, map_location=device)
         print(f"[resume] epoch={start_epoch}, step={global_step}")
 
     bad = [n for n,p in model.named_parameters() if p.device.type != device.type]
@@ -359,11 +367,15 @@ def main():
             model.train()
             for imgs in train_ld:
                 imgs = imgs.to(device)
-                recon, _ = model(imgs)
-                loss = l1(recon, imgs) + 0.1 * perc(recon, imgs) + 0.01 * total_variation(recon)
+                
+                with torch.amp.autocast('cuda', enabled=torch.cuda.is_available()):
+                    recon, _ = model(imgs)
+                    loss = l1(recon, imgs) + 0.1 * perc(recon, imgs) + 0.01 * total_variation(recon)
+                
                 opt.zero_grad(set_to_none=True)
-                loss.backward()
-                opt.step()
+                scaler.scale(loss).backward()
+                scaler.step(opt)
+                scaler.update()
 
                 # logs
                 if global_step % 50 == 0:
@@ -390,7 +402,7 @@ def main():
                 # step checkpoint
                 if args.ckpt_every and global_step > 0 and global_step % args.ckpt_every == 0:
                     tag = f"step_{global_step:06d}"
-                    ckp, encp, decp = save_checkpoint(out_dir/"checkpoints", tag, model, opt, sched,
+                    ckp, encp, decp = save_checkpoint(out_dir/"checkpoints", tag, model, opt, sched, scaler,
                                                       epoch=ep, step=global_step, args=args, keep_last=args.keep_last)
                     logger.log_artifact(Path(ckp), f"ckpt_{tag}")
                     logger.log_artifact(Path(encp), f"encoder_{tag}")
@@ -443,7 +455,7 @@ def main():
 
                 if args.ckpt_epoch:
                     tag = f"epoch_{ep:03d}"
-                    ckp, encp, decp = save_checkpoint(out_dir/"checkpoints", tag, model, opt, sched,
+                    ckp, encp, decp = save_checkpoint(out_dir/"checkpoints", tag, model, opt, sched, scaler,
                         epoch=ep, step=global_step, args=args, keep_last=0)
                     logger.log_artifact(Path(ckp), f"ckpt_{tag}")
                     logger.log_artifact(Path(encp), f"encoder_{tag}")
@@ -466,7 +478,7 @@ def main():
         # safe save during epoch
         print("\n[train] KeyboardInterrupt — saving interrupted checkpoint...")
         tag = "interrupted"
-        ckp, encp, decp = save_checkpoint(out_dir/"checkpoints", tag, model, opt, sched,
+        ckp, encp, decp = save_checkpoint(out_dir/"checkpoints", tag, model, opt, sched, scaler,
                                           epoch=ep if 'ep' in locals() else -1,
                                           step=global_step, args=args, keep_last=0)
         print(f"[train] Saved: {ckp}")
