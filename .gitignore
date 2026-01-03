@@ -187,3 +187,6 @@ fabric.properties
 
 # idea folder, uncomment if you don't need it
 # .idea
+/wikiart_super_res/
+/wikiart/
+/runs/
