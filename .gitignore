@@ -8,6 +8,10 @@ __pycache__/
 # C extensions
 *.so
 
+# Datasets
+data
+splits
+
 # Distribution / packaging
 .Python
 env/
@@ -183,3 +187,6 @@ fabric.properties
 
 # idea folder, uncomment if you don't need it
 # .idea
+/wikiart_super_res/
+/wikiart/
+/runs/
