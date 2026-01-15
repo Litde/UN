@@ -104,6 +104,7 @@ class ArtDatabase:
     def download(self, streaming: bool = False) -> Dataset:
         """ Download the dataset from the HF Hub.
        """
+        print("Started downloading dataset...")
         ds_id = self._resolve_dataset_id()
         self._raw = load_dataset(
             path=ds_id,
@@ -112,6 +113,7 @@ class ArtDatabase:
             streaming=streaming,
             data_dir=self.local_repo_dir,
         )
+        print("Dataset downloaded successfully.")
         return self._raw
 
     def make_split(
