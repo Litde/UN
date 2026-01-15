@@ -8,6 +8,10 @@ __pycache__/
 # C extensions
 *.so
 
+# Datasets
+data
+splits
+
 # Distribution / packaging
 .Python
 env/
@@ -185,6 +189,7 @@ fabric.properties
 # .idea
 
 credentials.json
-/wikiart/
-*.pt
 *.ckpt
+/wikiart_super_res/
+/wikiart/
+/runs/
