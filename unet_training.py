@@ -18,7 +18,7 @@ import glob
 if torch.cuda.is_available():
     torch.set_float32_matmul_precision('medium')
 
-EPOCHS = 10
+EPOCHS = 30
 BATCH_SIZE = 32
 LEARNING_RATE = 1e-3
 
