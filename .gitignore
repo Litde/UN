@@ -187,6 +187,9 @@ fabric.properties
 
 # idea folder, uncomment if you don't need it
 # .idea
+
+credentials.json
+*.ckpt
 /wikiart_super_res/
 /wikiart/
 /runs/
