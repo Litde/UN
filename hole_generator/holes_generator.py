@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 
 class ImageHoleGenerator:
-    def __init__(self, holes: int = 1, points: int = 5, debug: bool = False) -> None:
+    def __init__(self, holes: int = 1, points: int = 5, debug: bool = False, output_dir: str = "../output/images", recreate_output_dir: bool = True) -> None:
         self.debug = debug
         self.holes = holes
         self.points = points
@@ -16,8 +16,8 @@ class ImageHoleGenerator:
         self.current_id: int | None = None
 
         # pre-create output directory (only once per run)
-        self.out_dir = Path("../output/images")
-        if self.out_dir.exists():
+        self.out_dir = Path(output_dir)
+        if self.out_dir.exists() and recreate_output_dir:
             shutil.rmtree(self.out_dir)
         self.out_dir.mkdir(parents=True, exist_ok=True)
 

@@ -1,3 +1,5 @@
+import os
+
 from database import ArtDatabase
 from unet_autoencoder import UNetLightning
 from unet_training import _get_latest_checkpoint, LEARNING_RATE
@@ -10,23 +12,20 @@ import torch
 from datetime import datetime
 from torchvision import transforms
 
-
-EPOCHS = 10
+EPOCHS_FROM_ORIGIN_MODEL = 30
+EPOCHS = EPOCHS_FROM_ORIGIN_MODEL + 60
 
 credentials_data = load_comet_credentials('credentials.json')
 COMET_API_KEY, COMET_PROJECT_NAME, COMET_WORKSPACE_NAME = credentials_data['COMET_API_KEY'], credentials_data['COMET_PROJECT_NAME'], credentials_data['COMET_WORKSPACE_NAME']
 
-def train_cluster(datamodule: ImageDatasetLightning):
+def train_cluster(datamodule: ImageDatasetLightning, cluster_name: str = 'unknown', load_origin_model: bool = True):
     data_module = datamodule
     data_module.setup()
 
-    latest_ckpt = _get_latest_checkpoint('unet_models')
-    if latest_ckpt:
-        print(f"Resuming from checkpoint: {latest_ckpt}")
-        resume_ckpt = latest_ckpt
+    if load_origin_model:
+        resume_ckpt = f'unet_models/model.pt'
     else:
-        print("No checkpoint found, training from scratch.")
-        resume_ckpt = None
+        resume_ckpt = f'unet_models/model_{cluster_name}.pt'
 
     model = UNetLightning(lr=LEARNING_RATE, comet_workspace=COMET_WORKSPACE_NAME,
                           comet_project_name=COMET_PROJECT_NAME, comet_api_key=COMET_API_KEY)
@@ -35,8 +34,8 @@ def train_cluster(datamodule: ImageDatasetLightning):
 
     checkpoint_callback = ModelCheckpoint(
         dirpath='unet_models',
-        filename='model-{step}',
-        every_n_epochs=1,
+        filename='model-{step}-cluster{cluster_id}',
+        every_n_epochs=10,
         save_top_k=-1
     )
 
@@ -44,7 +43,7 @@ def train_cluster(datamodule: ImageDatasetLightning):
         api_key=COMET_API_KEY,
         project=COMET_PROJECT_NAME,
         workspace=COMET_WORKSPACE_NAME,
-        name=f'UNetIP_{datetime.now().strftime("%Y%m%d-%H%M%S")}'
+        name=f'UNetIP_{cluster_name}'
     )
 
     accelerator = 'gpu' if torch.cuda.is_available() else 'cpu'
@@ -65,41 +64,25 @@ def train_cluster(datamodule: ImageDatasetLightning):
     else:
         trainer.fit(model, data_module)
 
-    trainer.save_checkpoint('unet_models/model.pt')
+    trainer.save_checkpoint(f'unet_models/model_{cluster_name}.pt')
 
-def get_original_dataset() -> tuple:
-    db = ArtDatabase(task="inpainting")
-    db.download()
-    db.make_split(val_size=0.0, test_size=0.2, seed=42)
 
-    dataset = db.get_train()
-
-    transform = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225],
-        ),
-    ])
-
-    torch_dataset = db.as_torch(split="train", transform=transform)
-    print("Loaded dataset with", len(torch_dataset), "samples.")
-    ckpt = torch.load("clustering/wikiart_latent_features.pt", weights_only=False)
-
-    features = ckpt["features"]
-    clusters = ckpt["clusters"]
-    indices = ckpt["indices"]
-
-    return torch_dataset, features, clusters, indices
 
 
 if __name__ == "__main__":
-    origin_dataset, features, clusters, indices = get_original_dataset()
 
-    image_datasets = []
-    for cluster_id in range(10):
-        cluster_indices = [i for i, c in enumerate(clusters) if c == cluster_id]
-        selected_dataset = torch.utils.data.Subset(origin_dataset, [indices[i] for i in cluster_indices])
-        ds = ImageDatasetLightning()
-        image_datasets.append(selected_dataset)
+    target_pth = 'UN/clusters/cluster_3'
+    corrupted_pth = 'UN/corrupted_clusters/cluster_3'
+
+    # for target, corrupted in zip(os.listdir(target_pth), os.listdir(corrupted_pth)):
+    #     print(f"Training cluster: {target}")
+    #     data_module = ImageDatasetLightning(corrupted_dir=os.path.join(corrupted_pth, corrupted),
+    #                                         original_dir=os.path.join(target_pth, target),
+    #                                         batch_size=8)
+    #     train_cluster(data_module, target, load_origin_model=True)
+
+    print(f"Training cluster: {target_pth}")
+    data_module = ImageDatasetLightning(corrupted_dir=corrupted_pth,
+                                        original_dir=target_pth,
+                                        batch_size=8)
+    train_cluster(data_module, target_pth, load_origin_model=True)
