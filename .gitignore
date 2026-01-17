@@ -8,6 +8,10 @@ __pycache__/
 # C extensions
 *.so
 
+# Datasets
+data
+splits
+
 # Distribution / packaging
 .Python
 env/
@@ -186,3 +190,10 @@ temp_damaged_image.png
 
 # idea folder, uncomment if you don't need it
 # .idea
+
+credentials.json
+*.ckpt
+/wikiart_super_res/
+/wikiart/
+/runs/
+/UN/
