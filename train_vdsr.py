@@ -1,8 +1,6 @@
 import comet_ml
 from pytorch_lightning.loggers import CometLogger
 from pytorch_lightning import Trainer
-
-from train_srcnn import _get_latest_checkpoint
 from utils import load_comet_credentials
 from vdsr import VDSRLightning
 from wikiart_data_module import WikiArtDataModule

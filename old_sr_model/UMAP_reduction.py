@@ -68,7 +68,7 @@ def plot_embedding(embedding, target, output_file='umap_plot.png'):
     plt.show()
 
 if __name__ == "__main__":
-    data_dir = "wikiart"
+    data_dir = "../wikiart"
     dataset = prepare_data(data_dir, target='genre')
 
     # Flatten images for UMAP

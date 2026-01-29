@@ -2,7 +2,7 @@ import comet_ml
 from pytorch_lightning.loggers import CometLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, TQDMProgressBar
 from pytorch_lightning import Trainer
-from srcnn import SRCNNLitModel
+from old_sr_model.srcnn import SRCNNLitModel
 from super_resolution_dataset import ImageDatasetLightning
 from utils import load_comet_credentials
 import torch
@@ -13,7 +13,7 @@ EPOCHS = 25
 BATCH_SIZE = 32
 LEARNING_RATE = 1e-3
 
-credentials_data = load_comet_credentials('credentials.json')
+credentials_data = load_comet_credentials('../credentials.json')
 COMET_API_KEY, COMET_PROJECT_NAME, COMET_WORKSPACE_NAME = credentials_data['COMET_API_KEY'], credentials_data['COMET_PROJECT_NAME'], credentials_data['COMET_WORKSPACE_NAME']
 
 def _get_latest_checkpoint(dirpath: str):
@@ -26,7 +26,7 @@ def _get_latest_checkpoint(dirpath: str):
     return max(candidates, key=os.path.getmtime)
 
 def train_model():
-    data_module = ImageDatasetLightning(image_dir='wikiart_super_res', batch_size=BATCH_SIZE)
+    data_module = ImageDatasetLightning(image_dir='../wikiart_super_res', batch_size=BATCH_SIZE)
     data_module.setup()
 
     latest_ckpt = _get_latest_checkpoint('srcnn_models')
@@ -77,7 +77,7 @@ def train_model():
     trainer.save_checkpoint('srcnn_models/model.pt')
 
 def test_model():
-    data_module = ImageDatasetLightning(image_dir='wikiart_super_res', batch_size=BATCH_SIZE)
+    data_module = ImageDatasetLightning(image_dir='../wikiart_super_res', batch_size=BATCH_SIZE)
     data_module.setup()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
