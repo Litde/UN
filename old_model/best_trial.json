@@ -1,0 +1,12 @@
+{
+  "value": -0.01529023889452219,
+  "params": {
+    "base_channels": 32,
+    "enc_depth": 3,
+    "latent_dim": 512,
+    "num_inpainting_layers": 2,
+    "use_hardswish": false,
+    "optimizer": "RMSprop",
+    "lr": 0.004354937116861733
+  }
+}

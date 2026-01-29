@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import math
 from torchvision.transforms import functional as F
+from torchviz import make_dot
 
 EXPECTED_KEYS = {"COMET_API_KEY", "COMET_PROJECT_NAME", "COMET_WORKSPACE_NAME"}
 
