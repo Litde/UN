@@ -109,3 +109,8 @@ class ImageHoleGenerator:
                 if self.debug:
                     print(f"Skipping {p} due to error: {e}")
                 continue
+
+    def apply_to_image(self, image_pth: str) -> np.ndarray:
+        self.load_image(image_pth)
+        corrupted, _ = self.generate_holes()
+        return corrupted

@@ -11,6 +11,7 @@ from torchvision import transforms as T
 
 from autoencoders.resnet_autoencoder import ResNetEncoder
 from clustering.predict_cluster import predict_cluster
+from hole_generator.holes_generator import ImageHoleGenerator
 from super_resolution.infer_vdsr import super_resolve
 
 ENCODER_WEIGHTS_PATH = "runs/resnet_ae_os16/encoder_best.pt"
@@ -78,9 +79,12 @@ def main():
     p.add_argument("image", type=str, help="Ścieżka do obrazu wejściowego.")
     args = p.parse_args()
 
+    hole_generator = ImageHoleGenerator(holes=1, points=4)
+
     try:
         features = process_image(args.image)
         cluster = predict_cluster(features.cpu().numpy())
+        hole_image = hole_generator.apply_to_image(args.image)
         image_sr = super_resolve(args.image)
         print("\nPrzetwarzanie zakończone sukcesem.")
     except Exception as e:
