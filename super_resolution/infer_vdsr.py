@@ -6,7 +6,7 @@ from vdsr import VDSRLightning
 
 SCALE = 2
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-CHECKPOINT_PATH = "checkpoints/vdsr/vdsr-000-37.50.ckpt"
+CHECKPOINT_PATH = "../checkpoints/vdsr/vdsr-000-37.50.ckpt"
 
 def super_resolve(image_path: str):
     model = VDSRLightning.load_from_checkpoint(CHECKPOINT_PATH)

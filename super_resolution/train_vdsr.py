@@ -1,9 +1,8 @@
-import comet_ml
 from pytorch_lightning.loggers import CometLogger
 from pytorch_lightning import Trainer
 from utils import load_comet_credentials
-from vdsr import VDSRLightning
-from wikiart_data_module import WikiArtDataModule
+from super_resolution.vdsr import VDSRLightning
+from super_resolution.wikiart_data_module import WikiArtDataModule
 from pytorch_lightning.callbacks import ModelCheckpoint
 
 def train_model(comet_api_key, comet_project_name, comet_workspace_name, epochs=10, resume=True):
