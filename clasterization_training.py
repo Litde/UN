@@ -13,7 +13,7 @@ from datetime import datetime
 from torchvision import transforms
 
 EPOCHS_FROM_ORIGIN_MODEL = 30
-EPOCHS = EPOCHS_FROM_ORIGIN_MODEL + 60
+EPOCHS = EPOCHS_FROM_ORIGIN_MODEL + 60 + 60
 
 credentials_data = load_comet_credentials('credentials.json')
 COMET_API_KEY, COMET_PROJECT_NAME, COMET_WORKSPACE_NAME = credentials_data['COMET_API_KEY'], credentials_data['COMET_PROJECT_NAME'], credentials_data['COMET_WORKSPACE_NAME']
@@ -71,8 +71,10 @@ def train_cluster(datamodule: ImageDatasetLightning, cluster_name: str = 'unknow
 
 if __name__ == "__main__":
 
-    target_pth = 'UN/clusters/cluster_3'
-    corrupted_pth = 'UN/corrupted_clusters/cluster_3'
+    cluster_pth = 'cluster_3'
+
+    target_pth = f'UN/clusters/{cluster_pth}'
+    corrupted_pth = f'UN/corrupted_clusters/{cluster_pth}'
 
     # for target, corrupted in zip(os.listdir(target_pth), os.listdir(corrupted_pth)):
     #     print(f"Training cluster: {target}")
@@ -81,8 +83,8 @@ if __name__ == "__main__":
     #                                         batch_size=8)
     #     train_cluster(data_module, target, load_origin_model=True)
 
-    print(f"Training cluster: {target_pth}")
+    print(f"Training cluster: {cluster_pth}")
     data_module = ImageDatasetLightning(corrupted_dir=corrupted_pth,
                                         original_dir=target_pth,
                                         batch_size=8)
-    train_cluster(data_module, target_pth, load_origin_model=True)
+    train_cluster(data_module, cluster_pth, load_origin_model=True)
