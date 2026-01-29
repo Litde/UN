@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from sklearn.cluster import KMeans
-
+import joblib
 from autoencoders.resnet_autoencoder import ResNetAutoEncoder
 from database import ArtDatabase
 from tqdm import tqdm
@@ -85,6 +85,8 @@ if __name__ == "__main__":
 
     kmeans = KMeans(n_clusters=10, random_state=42)
     clusters = kmeans.fit_predict(features_all.numpy())
+
+    joblib.dump(kmeans, "wikiart_kmeans_model.joblib")
 
     torch.save(
         {
