@@ -8,11 +8,11 @@ SCALE = 2
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 CHECKPOINT_PATH = "../checkpoints/vdsr/vdsr-000-37.50.ckpt"
 
-def super_resolve(image_path: str):
+def super_resolve(image):
     model = VDSRLightning.load_from_checkpoint(CHECKPOINT_PATH)
     model.eval().to(DEVICE)
 
-    img = Image.open(image_path).convert("YCbCr")
+    img = image.convert("YCbCr")
     y, cb, cr = img.split()
 
     w, h = y.size

@@ -12,6 +12,7 @@ from torchvision import transforms as T
 from autoencoders.resnet_autoencoder import ResNetEncoder
 from clustering.predict_cluster import predict_cluster
 from hole_generator.holes_generator import ImageHoleGenerator
+from applying_inpainting import apply_inpainting
 from super_resolution.infer_vdsr import super_resolve
 
 ENCODER_WEIGHTS_PATH = "runs/resnet_ae_os16/encoder_best.pt"
@@ -85,7 +86,8 @@ def main():
         features = process_image(args.image)
         cluster = predict_cluster(features.cpu().numpy())
         hole_image = hole_generator.apply_to_image(args.image)
-        image_sr = super_resolve(args.image)
+        restored_image = apply_inpainting(hole_image, cluster_id=cluster)
+        image_sr = super_resolve(restored_image)
         print("\nPrzetwarzanie zakończone sukcesem.")
     except Exception as e:
         print(f"\nWystąpił błąd podczas przetwarzania: {e}")
