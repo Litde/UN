@@ -1,9 +1,11 @@
 import os
 import random
 import glob
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFileDialog, QProgressBar, QFrame, QSizePolicy
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFileDialog, QProgressBar, QFrame, QSizePolicy, QMessageBox
 from PyQt6.QtGui import QPixmap, QColor, QMouseEvent
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+
+from pipeline import run_restoration_pipeline
 
 class ClickableLabel(QLabel):
     clicked = pyqtSignal()
@@ -20,6 +22,7 @@ class InpaintingActivity(QWidget):
         super().__init__()
         self.main_pixmap = None
         self.small_pixmap = None
+        self.image_path = None
         self.restored_pixmap_cache = None
         
         self.init_ui()
@@ -128,8 +131,11 @@ class InpaintingActivity(QWidget):
         if fname:
             self.set_image(fname)
 
-    def set_image(self, path):
-        self.main_pixmap = QPixmap(path)
+    def set_image(self, damaged_path):
+        self.image_path = damaged_path
+
+        # Display the damaged image
+        self.main_pixmap = QPixmap(damaged_path)
         self.small_pixmap = None
         self.restored_pixmap_cache = None
         self.lbl_small.hide()
@@ -138,32 +144,50 @@ class InpaintingActivity(QWidget):
         self.update_displays()
 
     def restore_image(self):
-        if not self.main_pixmap: return
+        if not self.image_path:
+            QMessageBox.warning(self, "Missing Image", "Cannot restore image without image :3")
+            return
+
         self.btn_restore.setEnabled(False)
         self.btn_load.setEnabled(False)
         self.btn_save.setEnabled(False)
         self.progress.show()
-        QTimer.singleShot(1500, self._finish_restoration)
+        # Use a short timer to allow the UI to update before the blocking pipeline runs
+        QTimer.singleShot(50, self._run_pipeline_and_update)
 
-    def _finish_restoration(self):
-        assets_path = "assets/arts"
+    def _run_pipeline_and_update(self):
         restored_pixmap = None
-        if os.path.exists(assets_path):
-            images = glob.glob(os.path.join(assets_path, "*.png")) + glob.glob(os.path.join(assets_path, "*.jpg"))
-            if images: restored_pixmap = QPixmap(random.choice(images))
-        
-        if not restored_pixmap:
-            restored_pixmap = QPixmap(512, 512)
-            restored_pixmap.fill(QColor("#388E3C"))
+        try:
+            # This is the call to the backend pipeline
+            final_image_path = run_restoration_pipeline(
+                image_path=self.image_path,
+            )
+            if os.path.exists(final_image_path):
+                restored_pixmap = QPixmap(final_image_path)
+            else:
+                raise FileNotFoundError(f"Pipeline finished but output file not found: {final_image_path}")
 
-        self.small_pixmap = self.main_pixmap
-        self.main_pixmap = restored_pixmap
-        self.restored_pixmap_cache = restored_pixmap
-        self.lbl_small.show()
-        self.lbl_small.setCursor(Qt.CursorShape.PointingHandCursor)
+        except Exception as e:
+            print(f"An error occurred during the restoration pipeline: {e}")
+            QMessageBox.critical(self, "Pipeline Error", f"An error occurred during image restoration:\n{e}")
+
+        # --- Update UI after pipeline finishes (or fails) ---
         self.progress.hide()
         self.btn_load.setEnabled(True)
-        self.btn_save.setEnabled(True)
+
+        if restored_pixmap and not restored_pixmap.isNull():
+            # Success: show the result
+            self.small_pixmap = self.main_pixmap  # The original damaged image
+            self.main_pixmap = restored_pixmap
+            self.restored_pixmap_cache = restored_pixmap
+            self.lbl_small.show()
+            self.lbl_small.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.btn_save.setEnabled(True)
+            self.btn_restore.setEnabled(True) # Allow another run
+        else:
+            # Failure: re-enable restore button to allow user to try again
+            self.btn_restore.setEnabled(True)
+
         self.update_displays()
 
     def swap_images(self):
