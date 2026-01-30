@@ -76,6 +76,44 @@ def process_image(image_path: Union[str, Path]) -> torch.Tensor:
     return bottleneck_feature
 
 
+def run_restoration_pipeline(image_path: Union[str, Path]) -> str:
+    print("--- Starting Image Restoration Pipeline ---")
+    
+    try:
+        # Predict cluster from the original image
+        print(f"[1/3] Processing original image for clustering: {image_path}")
+        features = process_image(image_path)
+        cluster = predict_cluster(features.cpu().numpy())
+        print(f"      -> Predicted Cluster ID: {cluster}")
+
+        # Load the image object to pass to subsequent functions
+        damaged_image = Image.open(image_path).convert("RGB")
+
+        # Inpaint the damaged image using the cluster-specific model
+        print(f"[2/3] Inpainting damaged image...")
+        restored_image = apply_inpainting(damaged_image, cluster_id=cluster)
+        print(f"      -> Inpainting complete.")
+
+        # Apply super-resolution to the restored image
+        print(f"[3/3] Applying Super-Resolution...")
+        final_image = super_resolve(restored_image)
+        print(f"      -> Super-resolution complete.")
+
+        # Save the final image to a temporary file and return the path
+        output_dir = Path("output/final_images")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        input_path_obj = Path(image_path)
+        final_image_path = output_dir / f"{input_path_obj.stem}_restored{input_path_obj.suffix}"
+        final_image.save(str(final_image_path))
+        print(f"      -> Final image saved to: {final_image_path}")
+        
+        print("--- Pipeline Finished Successfully ---")
+        return final_image_path
+    except Exception as e:
+        print(f"\nAn error occurred during the pipeline: {e}")
+        raise
+
+
 def main():
     p = argparse.ArgumentParser(description="Uruchomienie pipeline'u do ekstrakcji cech z obrazu.")
     p.add_argument("image", type=str, help="Ścieżka do obrazu wejściowego.")
