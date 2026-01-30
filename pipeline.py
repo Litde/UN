@@ -8,6 +8,7 @@ from typing import Union
 import torch
 from PIL import Image
 from torchvision import transforms as T
+import cv2
 
 from autoencoders.resnet_autoencoder import ResNetEncoder
 from clustering.predict_cluster import predict_cluster
@@ -84,10 +85,11 @@ def main():
 
     try:
         features = process_image(args.image)
-        cluster = predict_cluster(features.cpu().numpy())
+        cluster = predict_cluster(features.cpu())
         hole_image = hole_generator.apply_to_image(args.image)
         restored_image = apply_inpainting(hole_image, cluster_id=cluster)
         image_sr = super_resolve(restored_image)
+        image_sr.show()
         print("\nPrzetwarzanie zakończone sukcesem.")
     except Exception as e:
         print(f"\nWystąpił błąd podczas przetwarzania: {e}")

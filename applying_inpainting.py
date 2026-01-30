@@ -19,18 +19,18 @@ def apply_inpainting(image, cluster_id: int):
         transforms.ToPILImage()
     ])
 
-    model_path = os.path.join(CHECKPOINT_PATH, f"model_cluster_{str(cluster_id)}")
+    model_path = os.path.join(CHECKPOINT_PATH, f"model_cluster_{str(cluster_id)}.pt")
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"Model checkpoint not found at {model_path}")
 
     model = UNetLightning.load_from_checkpoint(
-        CHECKPOINT_PATH,
+        model_path,
         map_location=DEVICE
     )
     model.eval()
     model.to(DEVICE)
-
-    input_tensor = transform(image).unsqueeze(0).to(DEVICE)  # (1, C, H, W)
+    to_pil = transforms.ToPILImage()
+    input_tensor = transform(to_pil(image)).unsqueeze(0).to(DEVICE)  # (1, C, H, W)
 
     with torch.no_grad():
         output = model(input_tensor)

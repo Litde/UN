@@ -63,14 +63,51 @@ class ImageHoleGenerator:
 
         return np.stack([x, y], axis=1)
 
-    def generate_holes(self) -> tuple[np.ndarray, np.ndarray]:
+    # def generate_holes(self) -> tuple[np.ndarray, np.ndarray]:
+    #     if self.image is None:
+    #         raise RuntimeError("Image not loaded. Call `load_image` first.")
+    #     h, w, _ = self.image.shape
+    #     mask = np.zeros((h, w), dtype=np.uint8)
+    #
+    #     polys = [self._random_polygon(h, w) for _ in range(self.holes)]
+    #     cv2.fillPoly(mask, polys, 1)
+    #
+    #     corrupted = self.image.copy()
+    #     corrupted[mask == 1] = 0
+    #
+    #     return corrupted, mask
+
+    def generate_holes(self, max_hole_area_ratio=0.02) -> tuple[np.ndarray, np.ndarray]:
+        """
+        max_hole_area_ratio: max fraction of image area a single hole can occupy
+                             e.g. 0.02 = max 2% of the image
+        """
         if self.image is None:
             raise RuntimeError("Image not loaded. Call `load_image` first.")
+
         h, w, _ = self.image.shape
         mask = np.zeros((h, w), dtype=np.uint8)
 
-        polys = [self._random_polygon(h, w) for _ in range(self.holes)]
-        cv2.fillPoly(mask, polys, 1)
+        max_hole_area = int(h * w * max_hole_area_ratio)
+
+        accepted = 0
+        max_attempts = self.holes * 10  # safety to avoid infinite loops
+        attempts = 0
+
+        while accepted < self.holes and attempts < max_attempts:
+            attempts += 1
+
+            poly = self._random_polygon(h, w)
+
+            # Temporary mask to measure area
+            tmp = np.zeros((h, w), dtype=np.uint8)
+            cv2.fillPoly(tmp, [poly], 1)
+
+            hole_area = np.sum(tmp)
+
+            if hole_area <= max_hole_area:
+                mask[tmp == 1] = 1
+                accepted += 1
 
         corrupted = self.image.copy()
         corrupted[mask == 1] = 0
