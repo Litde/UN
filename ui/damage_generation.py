@@ -187,6 +187,24 @@ class DamageGenerationActivity(QWidget):
                 Qt.TransformationMode.SmoothTransformation
             )
             self.lbl_mask_overlay.setPixmap(scaled_mask)
+        if self.damage_mask_pixmap:
+            # The overlay label should be the same size as the scaled pixmap
+            # and positioned correctly within lbl_image
+            lbl_w, lbl_h = self.lbl_image.width(), self.lbl_image.height()
+            pm_w, pm_h = scaled_pixmap.width(), scaled_pixmap.height()
+            
+            off_x = (lbl_w - pm_w) // 2
+            off_y = (lbl_h - pm_h) // 2
+            
+            self.lbl_mask_overlay.setGeometry(off_x, off_y, pm_w, pm_h)
+            
+            # Scale the mask pixmap to fit the new geometry
+            scaled_mask = self.damage_mask_pixmap.scaled(
+                pm_w, pm_h,
+                Qt.AspectRatioMode.IgnoreAspectRatio, # We want it to stretch to fit
+                Qt.TransformationMode.SmoothTransformation
+            )
+            self.lbl_mask_overlay.setPixmap(scaled_mask)
 
     def generate_damage(self):
         if not self.original_pixmap:

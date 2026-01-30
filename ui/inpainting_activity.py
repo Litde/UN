@@ -2,6 +2,7 @@ import os
 import random
 import glob
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFileDialog, QProgressBar, QFrame, QSizePolicy, QMessageBox
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFileDialog, QProgressBar, QFrame, QSizePolicy, QMessageBox
 from PyQt6.QtGui import QPixmap, QColor, QMouseEvent
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QThread, QObject
 
