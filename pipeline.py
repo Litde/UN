@@ -83,7 +83,7 @@ def run_restoration_pipeline(image_path: Union[str, Path]) -> str:
         # Predict cluster from the original image
         print(f"[1/3] Processing original image for clustering: {image_path}")
         features = process_image(image_path)
-        cluster = predict_cluster(features.cpu().numpy())
+        cluster = predict_cluster(features.cpu())
         print(f"      -> Predicted Cluster ID: {cluster}")
 
         # Load the image object to pass to subsequent functions

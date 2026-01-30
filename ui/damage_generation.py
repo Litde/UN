@@ -205,7 +205,7 @@ class DamageGenerationActivity(QWidget):
         
         # Use the existing generator by providing a dummy image of the correct size
         self.hole_gen.image = np.zeros((h, w, 3), dtype=np.uint8)
-        _, mask = self.hole_gen.generate_holes()
+        _, mask = self.hole_gen.generate_holes(0.01)
         self.damage_mask = (mask * 255).astype(np.uint8)
         
         # Create a pixmap for the blinking overlay
