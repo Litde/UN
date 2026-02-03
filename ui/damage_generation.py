@@ -1,10 +1,14 @@
 import random
 import os
+import numpy as np
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                              QLabel, QFileDialog, QProgressBar, QFrame, QSizePolicy,
                              QGraphicsOpacityEffect)
-from PyQt6.QtGui import QPixmap, QColor, QPainter
+from PyQt6.QtGui import QPixmap, QColor, QPainter, QImage
 from PyQt6.QtCore import Qt, pyqtSignal, QPropertyAnimation, QEasingCurve, QTimer
+
+from .image_utils import process_image_for_display
+from hole_generator.holes_generator import ImageHoleGenerator
 
 class DamageGenerationActivity(QWidget):
     back_clicked = pyqtSignal()
@@ -13,9 +17,12 @@ class DamageGenerationActivity(QWidget):
         super().__init__()
         self.current_image_path = None
         self.original_pixmap = None
-        self.mask_geometry = None
+        self.damage_mask = None # numpy array
         self.saved_path = None
+        self.damage_mask_pixmap = None # QPixmap for blinking overlay
         
+        self.hole_gen = ImageHoleGenerator(recreate_output_dir=False, holes=1)
+
         self.init_ui()
 
     def init_ui(self):
@@ -105,13 +112,13 @@ class DamageGenerationActivity(QWidget):
         self.lbl_image.setStyleSheet("background-color: #222; color: #666; font-size: 14px;")
         self.lbl_image.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         
-        # Mask Widget
-        self.mask_widget = QWidget(self.lbl_image)
-        self.mask_widget.setStyleSheet("background-color: black;")
-        self.mask_widget.hide()
+        # Mask Overlay Label
+        self.lbl_mask_overlay = QLabel(self.lbl_image)
+        self.lbl_mask_overlay.setStyleSheet("background-color: transparent;")
+        self.lbl_mask_overlay.hide()
         
-        self.opacity_effect = QGraphicsOpacityEffect(self.mask_widget)
-        self.mask_widget.setGraphicsEffect(self.opacity_effect)
+        self.opacity_effect = QGraphicsOpacityEffect(self.lbl_mask_overlay)
+        self.lbl_mask_overlay.setGraphicsEffect(self.opacity_effect)
         
         self.anim = QPropertyAnimation(self.opacity_effect, b"opacity")
         self.anim.setDuration(2000)
@@ -133,14 +140,16 @@ class DamageGenerationActivity(QWidget):
 
     def load_image(self, path):
         self.current_image_path = path
-        self.original_pixmap = QPixmap(path)
-        if self.original_pixmap.isNull():
+        pixmap = QPixmap(path)
+        if pixmap.isNull():
             return
+        self.original_pixmap = process_image_for_display(pixmap, target_size=256)
         
-        self.mask_widget.hide()
+        self.lbl_mask_overlay.hide()
         self.anim.stop()
-        self.mask_geometry = None
+        self.damage_mask = None
         self.saved_path = None
+        self.damage_mask_pixmap = None
         
         self.btn_damage.setEnabled(True)
         self.btn_save.setEnabled(False)
@@ -160,8 +169,42 @@ class DamageGenerationActivity(QWidget):
         )
         self.lbl_image.setPixmap(scaled_pixmap)
         
-        if self.mask_geometry:
-            self.update_mask_display(scaled_pixmap)
+        if self.damage_mask_pixmap:
+            # The overlay label should be the same size as the scaled pixmap
+            # and positioned correctly within lbl_image
+            lbl_w, lbl_h = self.lbl_image.width(), self.lbl_image.height()
+            pm_w, pm_h = scaled_pixmap.width(), scaled_pixmap.height()
+            
+            off_x = (lbl_w - pm_w) // 2
+            off_y = (lbl_h - pm_h) // 2
+            
+            self.lbl_mask_overlay.setGeometry(off_x, off_y, pm_w, pm_h)
+            
+            # Scale the mask pixmap to fit the new geometry
+            scaled_mask = self.damage_mask_pixmap.scaled(
+                pm_w, pm_h,
+                Qt.AspectRatioMode.IgnoreAspectRatio, # We want it to stretch to fit
+                Qt.TransformationMode.SmoothTransformation
+            )
+            self.lbl_mask_overlay.setPixmap(scaled_mask)
+        if self.damage_mask_pixmap:
+            # The overlay label should be the same size as the scaled pixmap
+            # and positioned correctly within lbl_image
+            lbl_w, lbl_h = self.lbl_image.width(), self.lbl_image.height()
+            pm_w, pm_h = scaled_pixmap.width(), scaled_pixmap.height()
+            
+            off_x = (lbl_w - pm_w) // 2
+            off_y = (lbl_h - pm_h) // 2
+            
+            self.lbl_mask_overlay.setGeometry(off_x, off_y, pm_w, pm_h)
+            
+            # Scale the mask pixmap to fit the new geometry
+            scaled_mask = self.damage_mask_pixmap.scaled(
+                pm_w, pm_h,
+                Qt.AspectRatioMode.IgnoreAspectRatio, # We want it to stretch to fit
+                Qt.TransformationMode.SmoothTransformation
+            )
+            self.lbl_mask_overlay.setPixmap(scaled_mask)
 
     def generate_damage(self):
         if not self.original_pixmap:
@@ -178,11 +221,23 @@ class DamageGenerationActivity(QWidget):
         w = self.original_pixmap.width()
         h = self.original_pixmap.height()
         
-        self.mask_geometry = self._create_mask_rect(w, h)
+        # Use the existing generator by providing a dummy image of the correct size
+        self.hole_gen.image = np.zeros((h, w, 3), dtype=np.uint8)
+        _, mask = self.hole_gen.generate_holes(0.01)
+        self.damage_mask = (mask * 255).astype(np.uint8)
         
+        # Create a pixmap for the blinking overlay
+        rgba_buffer = np.zeros((h, w, 4), dtype=np.uint8)
+        mask_indices = self.damage_mask > 0
+        rgba_buffer[mask_indices, 0:3] = 0  # R, G, B = 0 (black)
+        rgba_buffer[mask_indices, 3] = 255 # Alpha = 255 (opaque)
+        
+        overlay_image = QImage(rgba_buffer.data, w, h, QImage.Format.Format_RGBA8888)
+        self.damage_mask_pixmap = QPixmap.fromImage(overlay_image)
+
         self.update_image_display()
         
-        self.mask_widget.show()
+        self.lbl_mask_overlay.show()
         self.anim.start()
         
         self.progress.hide()
@@ -191,35 +246,8 @@ class DamageGenerationActivity(QWidget):
         self.btn_proceed.setEnabled(True)
         self.saved_path = None
 
-    def _create_mask_rect(self, w, h):
-        size = min(w, h) // 4
-        x = random.randint(0, w - size)
-        y = random.randint(0, h - size)
-        return (x, y, size, size)
-
-    def update_mask_display(self, displayed_pixmap):
-        lbl_w = self.lbl_image.width()
-        lbl_h = self.lbl_image.height()
-        pm_w = displayed_pixmap.width()
-        pm_h = displayed_pixmap.height()
-        
-        off_x = (lbl_w - pm_w) // 2
-        off_y = (lbl_h - pm_h) // 2
-        
-        scale_x = pm_w / self.original_pixmap.width()
-        scale_y = pm_h / self.original_pixmap.height()
-        
-        mx, my, mw, mh = self.mask_geometry
-        
-        final_x = off_x + int(mx * scale_x)
-        final_y = off_y + int(my * scale_y)
-        final_w = int(mw * scale_x)
-        final_h = int(mh * scale_y)
-        
-        self.mask_widget.setGeometry(final_x, final_y, final_w, final_h)
-
     def save_image(self):
-        if not self.original_pixmap or not self.mask_geometry:
+        if not self.original_pixmap or self.damage_mask is None:
             return
             
         save_path, _ = QFileDialog.getSaveFileName(self, "Save Damaged Image", "damaged.png", "PNG (*.png);;JPEG (*.jpg)")
@@ -229,12 +257,22 @@ class DamageGenerationActivity(QWidget):
 
     def _save_to_disk(self, path):
         result = self.original_pixmap.copy()
+        
+        h, w = self.damage_mask.shape
+        
+        # Create a black image with an alpha channel from the mask
+        rgba_buffer = np.zeros((h, w, 4), dtype=np.uint8)
+        mask_indices = self.damage_mask > 0
+        rgba_buffer[mask_indices, 0:3] = 0  # R, G, B = 0 (black)
+        rgba_buffer[mask_indices, 3] = 255 # Alpha = 255 (opaque)
+        
+        overlay_image = QImage(rgba_buffer.data, w, h, QImage.Format.Format_RGBA8888)
+        
+        # Draw the overlay on top of the original image
         painter = QPainter(result)
-        painter.setBrush(QColor("black"))
-        painter.setPen(Qt.PenStyle.NoPen)
-        mx, my, mw, mh = self.mask_geometry
-        painter.drawRect(mx, my, mw, mh)
+        painter.drawImage(0, 0, overlay_image)
         painter.end()
+        
         result.save(path)
 
     def on_proceed(self):

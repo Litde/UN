@@ -1,9 +1,29 @@
 import os
 import random
 import glob
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFileDialog, QProgressBar, QFrame, QSizePolicy
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFileDialog, QProgressBar, QFrame, QSizePolicy, QMessageBox
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFileDialog, QProgressBar, QFrame, QSizePolicy, QMessageBox
 from PyQt6.QtGui import QPixmap, QColor, QMouseEvent
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QThread, QObject
+
+from pipeline import run_restoration_pipeline
+
+class PipelineWorker(QObject):
+    """Uruchamia pipeline w osobnym wątku, aby nie blokować UI."""
+    finished = pyqtSignal(str)
+    error = pyqtSignal(str)
+
+    def __init__(self, image_path):
+        super().__init__()
+        self.image_path = image_path
+
+    def run(self):
+        try:
+            # To jest blokujące wywołanie, ale działa w osobnym wątku
+            result_path = run_restoration_pipeline(self.image_path)
+            self.finished.emit(str(result_path)) # Upewniamy się, że to string
+        except Exception as e:
+            self.error.emit(str(e))
 
 class ClickableLabel(QLabel):
     clicked = pyqtSignal()
@@ -20,7 +40,10 @@ class InpaintingActivity(QWidget):
         super().__init__()
         self.main_pixmap = None
         self.small_pixmap = None
+        self.image_path = None
         self.restored_pixmap_cache = None
+        self.worker = None
+        self.thread = None
         
         self.init_ui()
 
@@ -126,10 +149,14 @@ class InpaintingActivity(QWidget):
     def open_image_dialog(self):
         fname, _ = QFileDialog.getOpenFileName(self, "Select Image", "", "Image Files (*.png *.jpg *.jpeg *.bmp)")
         if fname:
+            # TODO: cropping image to right size
             self.set_image(fname)
 
-    def set_image(self, path):
-        self.main_pixmap = QPixmap(path)
+    def set_image(self, damaged_path):
+        self.image_path = damaged_path
+
+        # Display the damaged image
+        self.main_pixmap = QPixmap(damaged_path)
         self.small_pixmap = None
         self.restored_pixmap_cache = None
         self.lbl_small.hide()
@@ -138,33 +165,68 @@ class InpaintingActivity(QWidget):
         self.update_displays()
 
     def restore_image(self):
-        if not self.main_pixmap: return
+        if not self.image_path:
+            QMessageBox.warning(self, "Missing Image", "Cannot restore image without image :3")
+            return
+
         self.btn_restore.setEnabled(False)
         self.btn_load.setEnabled(False)
         self.btn_save.setEnabled(False)
         self.progress.show()
-        QTimer.singleShot(1500, self._finish_restoration)
 
-    def _finish_restoration(self):
-        assets_path = "assets/arts"
-        restored_pixmap = None
-        if os.path.exists(assets_path):
-            images = glob.glob(os.path.join(assets_path, "*.png")) + glob.glob(os.path.join(assets_path, "*.jpg"))
-            if images: restored_pixmap = QPixmap(random.choice(images))
+        # Ustawienie i uruchomienie pipeline'u w osobnym wątku
+        self.thread = QThread()
+        self.worker = PipelineWorker(self.image_path)
+        self.worker.moveToThread(self.thread)
+
+        # Połączenie sygnałów z workera do slotów w tej klasie
+        self.thread.started.connect(self.worker.run)
+        self.worker.finished.connect(self.on_pipeline_finished)
+        self.worker.error.connect(self.on_pipeline_error)
         
-        if not restored_pixmap:
-            restored_pixmap = QPixmap(512, 512)
-            restored_pixmap.fill(QColor("#388E3C"))
+        # Sprzątanie po zakończeniu pracy wątku
+        self.worker.finished.connect(self.thread.quit)
+        self.worker.error.connect(self.thread.quit)
+        self.thread.finished.connect(self.thread.deleteLater)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.worker.error.connect(self.worker.deleteLater)
 
-        self.small_pixmap = self.main_pixmap
-        self.main_pixmap = restored_pixmap
-        self.restored_pixmap_cache = restored_pixmap
-        self.lbl_small.show()
-        self.lbl_small.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Start wątku
+        self.thread.start()
+
+    def on_pipeline_finished(self, final_image_path: str):
+        """Slot obsługujący pomyślne zakończenie pipeline'u."""
+        restored_pixmap = None
+        if os.path.exists(final_image_path):
+            restored_pixmap = QPixmap(final_image_path)
+        else:
+            self.on_pipeline_error(f"Pipeline zakończony, ale nie znaleziono pliku wyjściowego: {final_image_path}")
+            return
+
+        # --- Update UI after pipeline finishes (or fails) ---
         self.progress.hide()
         self.btn_load.setEnabled(True)
-        self.btn_save.setEnabled(True)
+
+        if restored_pixmap and not restored_pixmap.isNull():
+            self.small_pixmap = self.main_pixmap
+            self.main_pixmap = restored_pixmap
+            self.restored_pixmap_cache = restored_pixmap
+            self.lbl_small.show()
+            self.lbl_small.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.btn_save.setEnabled(True)
+            self.btn_restore.setEnabled(True)
+        else:
+            self.btn_restore.setEnabled(True)
+
         self.update_displays()
+
+    def on_pipeline_error(self, error_message: str):
+        """Slot obsługujący błędy z pipeline'u."""
+        print(f"An error occurred during the restoration pipeline: {error_message}")
+        QMessageBox.critical(self, "Błąd w trakcie przetwarzania", f"Wystąpił błąd podczas przywracania obrazu:\n{error_message}")
+        self.progress.hide()
+        self.btn_load.setEnabled(True)
+        self.btn_restore.setEnabled(True)
 
     def swap_images(self):
         if not self.small_pixmap or not self.main_pixmap: return

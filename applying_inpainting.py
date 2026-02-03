@@ -29,8 +29,7 @@ def apply_inpainting(image, cluster_id: int):
     )
     model.eval()
     model.to(DEVICE)
-    to_pil = transforms.ToPILImage()
-    input_tensor = transform(to_pil(image)).unsqueeze(0).to(DEVICE)  # (1, C, H, W)
+    input_tensor = transform(image).unsqueeze(0).to(DEVICE)  # (1, C, H, W)
 
     with torch.no_grad():
         output = model(input_tensor)
